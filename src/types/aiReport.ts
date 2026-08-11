@@ -43,7 +43,7 @@ export interface AiBazi {
   hour: string;
   ri_zhu: string;
   yue_ling: string;
-  gender: string;
+  gender: string; // 引擎已转为中文： "男" | "女"
   dayun_direction: string;
   shi_shen: AiShiShen[];
   wuxing_count: Record<string, number>;

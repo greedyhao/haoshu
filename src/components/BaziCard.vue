@@ -22,7 +22,7 @@ const pillars = [
     </div>
     <p class="meta">
       日主 <b>{{ bazi.ri_zhu }}</b> · 月令 {{ bazi.yue_ling }} ·
-      {{ bazi.gender === "male" ? "男" : "女" }} · 大运{{ bazi.dayun_direction }}
+      {{ bazi.gender }} · 大运{{ bazi.dayun_direction }}
     </p>
   </div>
 </template>
