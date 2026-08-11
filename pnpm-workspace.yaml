@@ -1,0 +1,10 @@
+packages:
+  - "."
+
+# pnpm 11 的构建脚本放行配置：键为包名，值为 true 表示允许其 install 构建脚本。
+# 否则 pnpm install / pnpm run 会因"未批准脚本"而中止。
+# 注：@parcel/watcher 与 esbuild 在 Windows 上均有预编译包兜底，即便脚本不跑通常也能工作，
+# 这里放行仅为消除 pnpm 的预检拦截。
+allowBuilds:
+  esbuild: true
+  "@parcel/watcher": true

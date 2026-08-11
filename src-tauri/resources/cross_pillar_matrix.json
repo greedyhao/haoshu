@@ -1,0 +1,56 @@
+{
+  "doc": "八字分析总纲 v2.5 §5.7 跨柱作用矩阵",
+  "description": "六种柱对（年-月/年-日/年-时/月-日/月-时/日-时） × 五类作用（冲/刑/害/合/破）的完整作用意义表。供 bazi-analyzer --ai-export 的 chonghe.cross_pillar 字段回查，也为 AI 二次研判提供典籍依据。",
+  "actions": ["冲", "刑", "害", "合", "破"],
+  "pairs": ["年-月", "年-日", "年-时", "月-日", "月-时", "日-时"],
+  "pairs_meta": {
+    "年-月": { "distance_weight": 1.0, "involves_yue_ling": true, "kind": "邻位" },
+    "年-日": { "distance_weight": 0.25, "involves_yue_ling": false, "kind": "隔位" },
+    "年-时": { "distance_weight": 0.0, "involves_yue_ling": false, "kind": "遥隔" },
+    "月-日": { "distance_weight": 1.0, "involves_yue_ling": true, "kind": "邻位" },
+    "月-时": { "distance_weight": 0.25, "involves_yue_ling": true, "kind": "隔位" },
+    "日-时": { "distance_weight": 1.0, "involves_yue_ling": false, "kind": "邻位" }
+  },
+  "matrix": {
+    "冲": {
+      "年-月": { "label": "过房入舍，年月冲分；年月并伤父母妻妾难为", "source": "渊海子平", "corpus_id": 1806, "infer_type": "明示" },
+      "年-日": { "label": "年冲日兮父母旺，妻妾难存", "source": "三命通会", "corpus_id": null, "infer_type": "明示" },
+      "年-时": { "label": "时冲年兮儿女旺父母易损；年时并伤怙恃继嗣不保", "source": "三命通会", "corpus_id": null, "infer_type": "明示" },
+      "月-日": { "label": "日柱被月令冲克婚姻易变", "source": "子平真诠/渊海子平", "corpus_id": 2223, "infer_type": "明示" },
+      "月-时": { "label": "月时相刑相冲，根基尽毁；月时运同倒冲刑，贫贱多疑", "source": "三命通会/神峰通考", "corpus_id": null, "infer_type": "明示" },
+      "日-时": { "label": "日时相冲则妻子多艰；日时相冲卯酉始生必主迁移", "source": "三命通会/渊海子平", "corpus_id": 489, "infer_type": "明示" }
+    },
+    "刑": {
+      "年-月": { "label": "年主刑客，年刑月主祖制父母宫", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "年-日": { "label": "自身根基与祖荫相左，离乡自立", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "年-时": { "label": "长辈与子息相妨", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "月-日": { "label": "时逢七杀更兼寅巳相刑妻子遭损；酉寅相刑相害婚姻多损伤", "source": "神峰通考/渊海子平", "corpus_id": null, "infer_type": "明示" },
+      "月-时": { "label": "月时相刑相冲，根基尽毁", "source": "三命通会", "corpus_id": null, "infer_type": "明示" },
+      "日-时": { "label": "妻宫刑子息宫，夫妻子女相损、晚年孤", "source": "未见直述", "corpus_id": null, "infer_type": "推断" }
+    },
+    "害": {
+      "年-月": { "label": "月日时刑害生年则伤祖基", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "年-日": { "label": "害主暗损六亲，祖荫与自身相妨", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "年-时": { "label": "长辈与子息暗损相妨", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "月-日": { "label": "酉寅相刑相害婚姻多损伤", "source": "渊海子平", "corpus_id": 1807, "infer_type": "明示" },
+      "月-时": { "label": "兄弟与子女不和", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "日-时": { "label": "妻宫与时宫暗损，夫妻子女相妨", "source": "未见直述", "corpus_id": null, "infer_type": "推断" }
+    },
+    "合": {
+      "年-月": { "label": "年月干合走财官，日主之甲无分", "source": "子平真诠", "corpus_id": 2220, "infer_type": "明示" },
+      "年-日": { "label": "与年月日合为富贵", "source": "渊海子平", "corpus_id": null, "infer_type": "明示" },
+      "年-时": { "label": "年月之干与时干合，闲神合去贵气", "source": "子平真诠", "corpus_id": 2220, "infer_type": "明示" },
+      "月-日": { "label": "有用年日时支合成格局者，然皆以月令为用", "source": "三命通会", "corpus_id": null, "infer_type": "明示" },
+      "月-时": { "label": "日主财官印绶全，月时符合福绵绵", "source": "渊海子平/三命通会", "corpus_id": null, "infer_type": "明示" },
+      "日-时": { "label": "若与日相合不作此论", "source": "子平真诠", "corpus_id": 2220, "infer_type": "明示" }
+    },
+    "破": {
+      "年-月": { "label": "如遇冲破提纲，定主离于祖业（提纲=月令）", "source": "渊海子平", "corpus_id": null, "infer_type": "明示" },
+      "年-日": { "label": "依破主破损机理，祖荫与自身根基相破", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "年-时": { "label": "年破主祖基早失", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "月-日": { "label": "月破主长克昆季（兄弟）", "source": "未见直述", "corpus_id": null, "infer_type": "推断" },
+      "月-时": { "label": "月时支有破官合官之辰，主贵", "source": "三命通会", "corpus_id": null, "infer_type": "明示" },
+      "日-时": { "label": "时破主老无结果", "source": "未见直述", "corpus_id": null, "infer_type": "推断" }
+    }
+  }
+}
