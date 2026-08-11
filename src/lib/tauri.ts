@@ -33,7 +33,7 @@ export function analyze(args: AnalyzeArgs): Promise<AiReport> {
       skipDayun: args.skipDayun ?? false,
       baziDirect: args.baziDirect ?? null,
       liuYueYear: args.liuYueYear ?? null,
-      lean: args.lean ?? true,
+      lean: args.lean ?? false,
     },
   });
 }
