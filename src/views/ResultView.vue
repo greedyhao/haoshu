@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { AiReport } from "../types/aiReport";
+import type { AnalyzeArgs, PromptName } from "../lib/tauri";
+import { export_ai } from "../lib/tauri";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import BaziCard from "../components/BaziCard.vue";
 import WuXingChart from "../components/WuXingChart.vue";
 import ShiShenTable from "../components/ShiShenTable.vue";
@@ -12,7 +16,7 @@ import XingQingSection from "../components/XingQingSection.vue";
 import LianDongSection from "../components/LianDongSection.vue";
 import ClassicsSection from "../components/ClassicsSection.vue";
 
-defineProps<{ report: AiReport }>();
+const props = defineProps<{ report: AiReport; args: AnalyzeArgs | null }>();
 const active = ref("overview");
 
 const tabs = [
@@ -24,11 +28,59 @@ const tabs = [
   { key: "liandong", label: "联动研判" },
   { key: "classics", label: "典籍溯源" },
 ];
+
+// 导出给大模型分析
+const promptName = ref<PromptName>("friendly");
+const exporting = ref(false);
+const exportMsg = ref<string | null>(null);
+
+async function onExport() {
+  if (!props.args) {
+    exportMsg.value = "请先完成一次分析再导出。";
+    return;
+  }
+  exporting.value = true;
+  exportMsg.value = null;
+  try {
+    const bundle = await export_ai(props.args, promptName.value);
+    const defaultName =
+      promptName.value === "friendly" ? "八字分析_友好版.txt" : "八字分析_严谨版.txt";
+    const path = await save({
+      title: "导出给大模型分析",
+      defaultPath: defaultName,
+      filters: [{ name: "文本文件", extensions: ["txt"] }],
+    });
+    if (!path) {
+      exportMsg.value = "已取消导出。";
+      return;
+    }
+    await writeTextFile(path, bundle);
+    exportMsg.value = `已导出到：${path}`;
+  } catch (e) {
+    exportMsg.value = `导出失败：${String(e)}`;
+  } finally {
+    exporting.value = false;
+  }
+}
 </script>
 
 <template>
   <div class="result">
     <BaziCard :bazi="report.bazi" />
+
+    <div class="export-bar">
+      <span class="label">导出给大模型：</span>
+      <label class="radio"
+        ><input type="radio" value="friendly" v-model="promptName" /> 友好叙事版</label
+      >
+      <label class="radio"
+        ><input type="radio" value="optimized" v-model="promptName" /> 严谨七章版</label
+      >
+      <button class="export-btn" :disabled="exporting || !args" @click="onExport">
+        {{ exporting ? "导出中…" : "导出 .txt" }}
+      </button>
+      <span v-if="exportMsg" class="export-msg">{{ exportMsg }}</span>
+    </div>
 
     <div class="tabs">
       <button
@@ -120,5 +172,45 @@ const tabs = [
   .grid-2 {
     grid-template-columns: 1fr;
   }
+}
+.export-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.export-bar .label {
+  font-size: 13px;
+  color: var(--muted);
+}
+.export-bar .radio {
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.export-btn {
+  border: 1px solid #185fa5;
+  background: #185fa5;
+  color: #fff;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.export-msg {
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
 }
 </style>

@@ -6,6 +6,8 @@ mod commands;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // 让引擎读取打包的 SQLite 数据（corpus.db / shensha.db）。
             // 引擎在打开数据库前会读取 BAZI_DATA_DIR 环境变量，未设置则走原相对路径。
@@ -16,7 +18,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::analyze])
+        .invoke_handler(tauri::generate_handler![commands::analyze, commands::export_ai])
         .run(tauri::generate_context!())
         .expect("error while running bazi-ui");
 }

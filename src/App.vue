@@ -8,12 +8,14 @@ import { analyze, type AnalyzeArgs } from "./lib/tauri";
 const result = ref<AiReport | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
+const lastArgs = ref<AnalyzeArgs | null>(null);
 
 async function onAnalyze(args: AnalyzeArgs) {
   loading.value = true;
   error.value = null;
   try {
     result.value = await analyze(args);
+    lastArgs.value = args;
   } catch (e) {
     error.value = String(e);
   } finally {
@@ -33,7 +35,7 @@ async function onAnalyze(args: AnalyzeArgs) {
       <section class="result-area">
         <p v-if="error" class="error">{{ error }}</p>
         <p v-else-if="loading" class="hint">分析中…</p>
-        <ResultView v-else-if="result" :report="result" />
+        <ResultView v-else-if="result" :report="result" :args="lastArgs" />
         <p v-else class="hint">在左侧输入生辰后点击「开始分析」。</p>
       </section>
     </main>
