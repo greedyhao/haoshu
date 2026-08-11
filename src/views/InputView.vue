@@ -30,7 +30,7 @@ function submit() {
     isLeap: form.isLeap,
     skipDayun: form.skipDayun,
     baziDirect: form.baziDirect.trim() || undefined,
-    lean: true,
+    lean: false,
   });
 }
 </script>

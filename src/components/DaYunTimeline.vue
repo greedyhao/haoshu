@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import type { AiDaYun, SuiYunTrigger } from "../types/aiReport";
+import { computed, ref } from "vue";
+import type { AiDaYun, AiYearly, SuiYunTrigger } from "../types/aiReport";
 
 const props = defineProps<{
   dayun: AiDaYun | null;
   suiYun: SuiYunTrigger | null;
 }>();
+
+// 0 = 全部总览；其余为对应大运 index
+const selectedYun = ref(0);
 
 const colors: Record<string, string> = {
   木: "var(--c-mu)",
@@ -31,6 +34,55 @@ const binglinYears = computed(() => {
 });
 const triggerYears = computed(() => new Set(props.suiYun?.strong_trigger_years ?? []));
 
+// 由起运公历年份推算每个大运的年份区间（每步十年）
+const yunRanges = computed(() => {
+  if (!props.dayun) return [];
+  const base = props.dayun.qi_yun.year;
+  return props.dayun.dayun_list.map((d) => {
+    const start = base + (d.index - 1) * 10;
+    return { index: d.index, startYear: start, endYear: start + 9 };
+  });
+});
+
+// 某公历年份所属的大运序号（0 表示大运前）
+function yunIndexOfYear(year: number): number {
+  if (!props.dayun) return 0;
+  const base = props.dayun.qi_yun.year;
+  if (year < base) return 0;
+  let idx = Math.floor((year - base) / 10) + 1;
+  const max = props.dayun.dayun_list.length;
+  if (idx > max) idx = max;
+  return idx;
+}
+
+// 按大运分组流年
+const yearlyByYun = computed<Record<number, AiYearly[]>>(() => {
+  const map: Record<number, AiYearly[]> = {};
+  (props.dayun?.yearly ?? []).forEach((y) => {
+    const i = yunIndexOfYear(y.year);
+    (map[i] ??= []).push(y);
+  });
+  // 每个大运内按年份升序
+  Object.values(map).forEach((arr) => arr.sort((a, b) => a.year - b.year));
+  return map;
+});
+
+const displayYearly = computed<AiYearly[]>(() => {
+  if (selectedYun.value === 0) return props.dayun?.yearly ?? [];
+  return yearlyByYun.value[selectedYun.value] ?? [];
+});
+
+const currentStep = computed(
+  () => props.dayun?.dayun_list.find((d) => d.index === selectedYun.value) ?? null,
+);
+const currentRange = computed(
+  () => yunRanges.value.find((r) => r.index === selectedYun.value) ?? null,
+);
+
+function selectYun(i: number) {
+  selectedYun.value = i;
+}
+
 function wuxingColor(w: string): string {
   return colors[w] ?? "var(--muted)";
 }
@@ -53,10 +105,21 @@ function wuxingColor(w: string): string {
         <span v-if="dayun.note" class="note">（{{ dayun.note }}）</span>
       </div>
 
-      <!-- 大运步骤 -->
-      <h3>十年大运</h3>
+      <!-- 大运步骤（可点击切换流年） -->
+      <h3>十年大运（点击查看对应流年）</h3>
       <div class="dayun-row">
-        <div class="dayun-step" v-for="d in dayun.dayun_list" :key="d.index">
+        <button class="dayun-step" :class="{ active: selectedYun === 0 }" @click="selectYun(0)">
+          <div class="step-idx">全部</div>
+          <div class="step-ganzhi">总览</div>
+          <div class="step-age">所有流年</div>
+        </button>
+        <button
+          v-for="d in dayun.dayun_list"
+          :key="d.index"
+          class="dayun-step"
+          :class="{ active: d.index === selectedYun }"
+          @click="selectYun(d.index)"
+        >
           <div class="step-idx">第 {{ d.index }} 运</div>
           <div class="step-ganzhi">{{ d.ganzhi }}</div>
           <div class="step-age">
@@ -65,7 +128,7 @@ function wuxingColor(w: string): string {
             </template>
             <template v-else>年龄未知</template>
           </div>
-        </div>
+        </button>
       </div>
 
       <!-- 岁运引动摘要 -->
@@ -89,12 +152,20 @@ function wuxingColor(w: string): string {
         </ul>
       </div>
 
-      <!-- 流年 -->
-      <h3>流年（逐年）</h3>
+      <!-- 流年（按选中大运过滤） -->
+      <h3 v-if="selectedYun === 0">流年（逐年 · 全部大运）</h3>
+      <h3 v-else-if="currentStep && currentRange">
+        第 {{ currentStep.index }} 运 · {{ currentStep.ganzhi }}
+        <span class="sub"
+          >（{{ currentRange.startYear }}–{{ currentRange.endYear }} 年 ·
+          {{ currentStep.start_age }}–{{ currentStep.end_age }} 岁）</span
+        >
+      </h3>
+      <p v-if="displayYearly.length === 0" class="hint">该大运区间暂无流年数据。</p>
       <div class="yearly-grid">
         <div
           class="yearly"
-          v-for="y in dayun.yearly"
+          v-for="y in displayYearly"
           :key="y.year"
           :class="{
             'is-trigger': triggerYears.has(y.year),
@@ -160,6 +231,11 @@ function wuxingColor(w: string): string {
   margin: 18px 0 10px;
   font-size: 15px;
 }
+.dayun h3 .sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
 .dayun-row {
   display: flex;
   gap: 10px;
@@ -170,9 +246,22 @@ function wuxingColor(w: string): string {
   flex: 0 0 auto;
   min-width: 84px;
   background: #f3f5f9;
+  border: 1px solid transparent;
   border-radius: 10px;
   padding: 10px 8px;
   text-align: center;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.dayun-step:hover {
+  background: #e9edf3;
+}
+.dayun-step.active {
+  background: #e8f1fb;
+  border-color: #185fa5;
+  box-shadow: 0 0 0 1px #185fa5 inset;
 }
 .step-idx {
   font-size: 12px;
@@ -280,5 +369,9 @@ function wuxingColor(w: string): string {
 .rel.warn {
   background: #fcf3df;
   color: #b8860b;
+}
+.hint {
+  color: var(--muted);
+  font-size: 13px;
 }
 </style>
