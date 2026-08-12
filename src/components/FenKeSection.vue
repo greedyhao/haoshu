@@ -111,4 +111,9 @@ function jiClass(ji: string): string {
 .muted {
   color: var(--muted);
 }
+@media (max-width: 760px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

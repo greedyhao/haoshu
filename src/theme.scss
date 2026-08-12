@@ -221,10 +221,15 @@ body {
 }
 
 /* ShiShenTable */
+.shishen .scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .shishen table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  min-width: 460px;
 }
 
 .shishen th,
@@ -291,4 +296,72 @@ body {
   margin: 4px 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+/* ===== 移动端适配（响应式回流） ===== */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+  /* 移动端防止意外横向溢出时出现恼人的橡皮筋滚动 */
+  overflow-x: hidden;
+}
+
+.panel,
+.result {
+  max-width: 100%;
+}
+
+@media (max-width: 760px) {
+  .app {
+    padding: 10px;
+  }
+  .app-header h1 {
+    font-size: 18px;
+  }
+  .subtitle {
+    margin: 2px 0 12px;
+  }
+  /* 桌面两栏（侧边表单 + 内容）在手机上回流为单列：表单在上、结果在下 */
+  .app-main {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  /* 兜底：任何未自带断点的 .grid-2 在窄屏单列 */
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  /* 四柱八字：窄屏收紧字距、缩小字号，保证四列不溢出 */
+  .pillars {
+    gap: 6px;
+  }
+  .pillar {
+    padding: 8px 2px;
+  }
+  .pillar b {
+    font-size: 18px;
+    letter-spacing: 1px;
+  }
+  .bazi-card .meta {
+    font-size: 12px;
+  }
+  .input-view .row {
+    gap: 8px;
+  }
+}
+
+@media (max-width: 420px) {
+  .app {
+    padding: 8px;
+  }
+  .panel {
+    padding: 12px;
+    border-radius: 10px;
+  }
+  .app-header h1 {
+    font-size: 17px;
+  }
 }

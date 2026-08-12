@@ -164,6 +164,22 @@ async function onExport() {
   .grid-2 {
     grid-template-columns: 1fr;
   }
+  /* Tab 栏改为单行横向滚动，贴近 App 体验，避免换行占多行 */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 8px;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 8px 14px;
+  }
 }
 .export-bar {
   display: flex;
