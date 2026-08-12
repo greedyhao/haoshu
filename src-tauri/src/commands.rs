@@ -79,23 +79,17 @@ pub fn analyze(args: AnalyzeArgs) -> Result<AiReport, String> {
 /// 导出给大模型分析的命令。
 ///
 /// 把引擎结果用 `build_ai_compact` 扁平成纯文本（schema 演进自动跟随、内容零丢失），
-/// 再与打包的提示词模板（prompt_friendly.md / prompt_optimized.md）组装成一份纯文本包，
-/// 直接落地给外部大模型分析。模板路径取 `resources/prompts/prompt_{name}.md`，
+/// 再与固定的提示词模板（prompt_friendly.md，口语叙事版）组装成一份纯文本包，
+/// 直接落地给外部大模型分析。模板路径取 `resources/prompts/prompt_friendly.md`，
 /// 与 corpus.db 等走同一 resource_dir 探测逻辑（dev 与打包后均可读）。
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportArgs {
     pub args: AnalyzeArgs,
-    /// 提示词模板名：friendly（口语叙事版）| optimized（严谨七章版）
-    pub prompt_name: String,
 }
 
 #[tauri::command]
 pub fn export_ai(app: AppHandle, export: ExportArgs) -> Result<String, String> {
-    if export.prompt_name != "friendly" && export.prompt_name != "optimized" {
-        return Err("prompt_name 仅支持 friendly 或 optimized".into());
-    }
-
     let query = build_query(&export.args)?;
     // 导出始终用全量（lean=false），保证喂给大模型的流年/神煞/典籍等数据完整。
     let result = analyze_bazi_detailed(&query)?;
@@ -108,7 +102,7 @@ pub fn export_ai(app: AppHandle, export: ExportArgs) -> Result<String, String> {
     let prompt_path = res_dir
         .join("resources")
         .join("prompts")
-        .join(format!("prompt_{}.md", export.prompt_name));
+        .join("prompt_friendly.md");
 
     let prompt = std::fs::read_to_string(&prompt_path)
         .map_err(|e| format!("读取提示词模板失败 {}: {}", prompt_path.display(), e))?;

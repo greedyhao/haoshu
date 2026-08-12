@@ -38,16 +38,10 @@ export function analyze(args: AnalyzeArgs): Promise<AiReport> {
   });
 }
 
-export type PromptName = "friendly" | "optimized";
-
-// 调用 Rust 侧 #[tauri::command] export_ai，返回「提示词 + 扁平原文本数据」的纯文本包，
+// 调用 Rust 侧 #[tauri::command] export_ai，返回「固定提示词(prompt_friendly.md) + 扁平原文本数据」的纯文本包，
 // 可直接落地为 .txt 喂给外部大模型分析。导出始终用全量（引擎侧 lean=false）。
-// 命令签名是 `fn export_ai(app, export: ExportArgs)`，ExportArgs 含 args 与 promptName，
-// 因此传 { export: { args: {...}, promptName } }。
-export function export_ai(
-  args: AnalyzeArgs,
-  promptName: PromptName,
-): Promise<string> {
+// 命令签名是 `fn export_ai(app, export: ExportArgs)`，ExportArgs 仅含 args，因此传 { export: { args: {...} } }。
+export function export_ai(args: AnalyzeArgs): Promise<string> {
   return invoke<string>("export_ai", {
     export: {
       args: {
@@ -64,7 +58,6 @@ export function export_ai(
         liuYueYear: args.liuYueYear ?? null,
         lean: false,
       },
-      promptName,
     },
   });
 }

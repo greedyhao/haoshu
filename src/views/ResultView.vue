@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { AiReport } from "../types/aiReport";
-import type { AnalyzeArgs, PromptName } from "../lib/tauri";
+import type { AnalyzeArgs } from "../lib/tauri";
 import { export_ai } from "../lib/tauri";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
@@ -29,8 +29,7 @@ const tabs = [
   { key: "classics", label: "典籍溯源" },
 ];
 
-// 导出给大模型分析
-const promptName = ref<PromptName>("friendly");
+// 导出给大模型分析（固定使用 prompt_friendly.md 一版）
 const exporting = ref(false);
 const exportMsg = ref<string | null>(null);
 
@@ -42,9 +41,8 @@ async function onExport() {
   exporting.value = true;
   exportMsg.value = null;
   try {
-    const bundle = await export_ai(props.args, promptName.value);
-    const defaultName =
-      promptName.value === "friendly" ? "八字分析_友好版.txt" : "八字分析_严谨版.txt";
+    const bundle = await export_ai(props.args);
+    const defaultName = "八字分析.txt";
     const path = await save({
       title: "导出给大模型分析",
       defaultPath: defaultName,
@@ -70,12 +68,6 @@ async function onExport() {
 
     <div class="export-bar">
       <span class="label">导出给大模型：</span>
-      <label class="radio"
-        ><input type="radio" value="friendly" v-model="promptName" /> 友好叙事版</label
-      >
-      <label class="radio"
-        ><input type="radio" value="optimized" v-model="promptName" /> 严谨七章版</label
-      >
       <button class="export-btn" :disabled="exporting || !args" @click="onExport">
         {{ exporting ? "导出中…" : "导出 .txt" }}
       </button>
@@ -187,13 +179,6 @@ async function onExport() {
 .export-bar .label {
   font-size: 13px;
   color: var(--muted);
-}
-.export-bar .radio {
-  font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
 }
 .export-btn {
   border: 1px solid #185fa5;
