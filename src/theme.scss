@@ -43,7 +43,8 @@ body {
 
 .app-main {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  /* 内容列用 minmax(0,1fr) 而非 1fr，避免被内部不可收缩内容（表格/长串）撑破导致不自适应 */
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -69,6 +70,8 @@ body {
 
 .result-area {
   min-height: 420px;
+  /* 允许内容列收缩，配合 minmax(0,1fr) 防止子元素把宽度撑破 */
+  min-width: 0;
 }
 
 .error {
@@ -143,6 +146,39 @@ body {
 .input-view button:disabled {
   background: #9bb6d6;
   cursor: default;
+}
+
+/* 折叠头部：覆盖 .input-view button 的蓝色整宽样式 */
+.input-view .panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.input-view .caret {
+  display: inline-block;
+  font-size: 13px;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+  transform: rotate(-90deg);
+}
+.input-view .caret.open {
+  transform: rotate(0deg);
+}
+.input-view .summary {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  word-break: break-all;
 }
 
 /* BaziCard */

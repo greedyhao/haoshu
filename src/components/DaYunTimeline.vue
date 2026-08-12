@@ -306,7 +306,8 @@ function wuxingColor(w: string): string {
 }
 .yearly-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* auto-fit 让逐年卡片撑满容器宽度（最后一行无右侧空隙）；auto-fill 会留空列 */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 .yearly {
@@ -373,5 +374,17 @@ function wuxingColor(w: string): string {
 .hint {
   color: var(--muted);
   font-size: 13px;
+}
+@media (max-width: 760px) {
+  .yearly-grid {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+  .dayun-step {
+    min-width: 76px;
+    padding: 8px 6px;
+  }
+  .step-ganzhi {
+    font-size: 17px;
+  }
 }
 </style>
