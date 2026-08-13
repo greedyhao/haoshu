@@ -114,6 +114,25 @@ body {
   color: var(--muted);
 }
 
+/* ===== 自适应安全网 =====
+   配合 body 的 overflow-x:hidden：让长串文本（神煞查法/口诀/详解、bazi 元信息、
+   典籍原文、导出路径等）能折行而非被裁切；并允许 grid/flex 子项收缩，避免把
+   容器宽度撑破。仅作用于文本/布局容器，不影响任何分析逻辑，桌面端同样受益。 */
+.panel,
+.result,
+.bazi-card .meta,
+.shensha .desc,
+.shensha .rule,
+.shensha .koujue,
+.shensha summary em,
+.export-msg {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.grid-2 > * {
+  min-width: 0;
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -398,5 +417,13 @@ body {
   }
   .app-header h1 {
     font-size: 17px;
+  }
+  /* 超窄屏（如 320px）顶栏允许换行，避免标题与折叠开关互相挤压溢出 */
+  .app-header {
+    flex-wrap: wrap;
+  }
+  .app-header h1 {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 }
