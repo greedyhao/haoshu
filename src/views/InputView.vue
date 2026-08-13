@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref, computed } from "vue";
+import { reactive } from "vue";
 import type { AnalyzeArgs } from "../lib/tauri";
 
 defineProps<{ loading: boolean }>();
 const emit = defineEmits<{ (e: "analyze", args: AnalyzeArgs): void }>();
-
-// 输入区是否折叠（折叠后只显示标题与当前选择摘要，扩大结果可见区域）
-const collapsed = ref(false);
 
 const form = reactive({
   year: 1990,
@@ -36,59 +33,40 @@ function submit() {
     lean: false,
   });
 }
-
-// 折叠时展示的当前选择摘要
-const summary = computed(() => {
-  const mm = String(form.minute).padStart(2, "0");
-  const cal = form.isGregorian ? "公历" : "农历";
-  const g = form.gender === "male" ? "男" : "女";
-  const leap = form.isLeap ? " · 闰月" : "";
-  const direct = form.baziDirect.trim()
-    ? ` · 直接八字 ${form.baziDirect.trim()}`
-    : "";
-  return `${form.year}年${form.month}月${form.day}日 ${form.hour}:${mm} · ${g} · ${cal}${leap}${direct}`;
-});
 </script>
 
 <template>
   <div class="panel input-view">
-    <button class="panel-head" type="button" @click="collapsed = !collapsed">
-      <span>出生信息</span>
-      <span class="caret" :class="{ open: !collapsed }">▾</span>
-    </button>
-    <p class="summary" v-if="collapsed">{{ summary }}</p>
+    <h2>出生信息</h2>
+    <label>年 <input type="number" v-model="form.year" /></label>
+    <label>月 <input type="number" v-model="form.month" min="1" max="12" /></label>
+    <label>日 <input type="number" v-model="form.day" min="1" max="31" /></label>
+    <label>时 <input type="number" v-model="form.hour" min="0" max="23" /></label>
+    <label>分 <input type="number" v-model="form.minute" min="0" max="59" /></label>
 
-    <div class="inputs" v-show="!collapsed">
-      <label>年 <input type="number" v-model="form.year" /></label>
-      <label>月 <input type="number" v-model="form.month" min="1" max="12" /></label>
-      <label>日 <input type="number" v-model="form.day" min="1" max="31" /></label>
-      <label>时 <input type="number" v-model="form.hour" min="0" max="23" /></label>
-      <label>分 <input type="number" v-model="form.minute" min="0" max="59" /></label>
-
-      <div class="row">
-        <span>历法</span>
-        <label><input type="radio" :value="true" v-model="form.isGregorian" /> 公历</label>
-        <label><input type="radio" :value="false" v-model="form.isGregorian" /> 农历</label>
-      </div>
-      <div class="row">
-        <span>性别</span>
-        <label><input type="radio" value="male" v-model="form.gender" /> 男</label>
-        <label><input type="radio" value="female" v-model="form.gender" /> 女</label>
-      </div>
-
-      <label class="check"><input type="checkbox" v-model="form.isLeap" /> 闰月</label>
-      <label class="check"
-        ><input type="checkbox" v-model="form.skipDayun" /> 快速模式（跳过大运流年）</label
-      >
-
-      <label class="full"
-        >直接八字（可选）
-        <input type="text" v-model="form.baziDirect" placeholder="庚午 癸未 辛巳 乙未" />
-      </label>
-
-      <button :disabled="loading" @click="submit">
-        {{ loading ? "分析中…" : "开始分析" }}
-      </button>
+    <div class="row">
+      <span>历法</span>
+      <label><input type="radio" :value="true" v-model="form.isGregorian" /> 公历</label>
+      <label><input type="radio" :value="false" v-model="form.isGregorian" /> 农历</label>
     </div>
+    <div class="row">
+      <span>性别</span>
+      <label><input type="radio" value="male" v-model="form.gender" /> 男</label>
+      <label><input type="radio" value="female" v-model="form.gender" /> 女</label>
+    </div>
+
+    <label class="check"><input type="checkbox" v-model="form.isLeap" /> 闰月</label>
+    <label class="check"
+      ><input type="checkbox" v-model="form.skipDayun" /> 快速模式（跳过大运流年）</label
+    >
+
+    <label class="full"
+      >直接八字（可选）
+      <input type="text" v-model="form.baziDirect" placeholder="庚午 癸未 辛巳 乙未" />
+    </label>
+
+    <button :disabled="loading" @click="submit">
+      {{ loading ? "分析中…" : "开始分析" }}
+    </button>
   </div>
 </template>

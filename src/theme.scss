@@ -30,6 +30,13 @@ body {
   padding: 18px;
 }
 
+.app-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .app-header h1 {
   margin: 0;
   font-size: 21px;
@@ -41,12 +48,37 @@ body {
   font-size: 13px;
 }
 
+/* 顶栏折叠开关：常驻，可随时展开/收起输入侧栏 */
+.toggle-side {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toggle-side:hover {
+  background: #eef2f7;
+}
+
 .app-main {
   display: grid;
   /* 内容列用 minmax(0,1fr) 而非 1fr，避免被内部不可收缩内容（表格/长串）撑破导致不自适应 */
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+}
+
+/* 输入侧栏收起：仅保留结果区占满宽度 */
+.app-main.collapsed {
+  grid-template-columns: 1fr;
+}
+.app-main.collapsed .input-view {
+  display: none;
 }
 
 .panel {
@@ -146,39 +178,6 @@ body {
 .input-view button:disabled {
   background: #9bb6d6;
   cursor: default;
-}
-
-/* 折叠头部：覆盖 .input-view button 的蓝色整宽样式 */
-.input-view .panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  margin: 0;
-  padding: 2px 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.input-view .caret {
-  display: inline-block;
-  font-size: 13px;
-  color: var(--muted);
-  transition: transform 0.2s ease;
-  transform: rotate(-90deg);
-}
-.input-view .caret.open {
-  transform: rotate(0deg);
-}
-.input-view .summary {
-  margin: 4px 0 12px;
-  font-size: 13px;
-  color: var(--muted);
-  word-break: break-all;
 }
 
 /* BaziCard */
