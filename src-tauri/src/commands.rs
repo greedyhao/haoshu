@@ -1,4 +1,7 @@
-use bazi_analyzer::ai_export::{build_ai_compact, build_ai_report, build_ai_save_bundle, AiReport};
+use bazi_analyzer::ai_export::{
+    build_ai_brief, build_ai_compact, build_ai_lite, build_ai_report, build_ai_save_bundle,
+    extract_materials, AiReport,
+};
 use bazi_analyzer::bazi::Gender;
 use bazi_analyzer::service::{AnalysisQuery, analyze_bazi_detailed};
 use tauri::AppHandle;
@@ -76,16 +79,27 @@ pub fn analyze(args: AnalyzeArgs) -> Result<AiReport, String> {
     Ok(build_ai_report(&result, args.lean))
 }
 
-/// 导出给大模型分析的命令。
-///
-/// 把引擎结果用 `build_ai_compact` 扁平成纯文本（schema 演进自动跟随、内容零丢失），
-/// 再与固定的提示词模板（prompt_friendly.md，口语叙事版）组装成一份纯文本包，
-/// 直接落地给外部大模型分析。模板路径取 `resources/prompts/prompt_friendly.md`，
-/// 与 corpus.db 等走同一 resource_dir 探测逻辑（dev 与打包后均可读）。
+/// 读取 resources/prompts/ 下的提示词模板（dev 与打包后走同一 resource_dir 探测逻辑）。
+fn read_prompt(app: &AppHandle, name: &str) -> Result<String, String> {
+    let res_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("无法获取资源目录: {}", e))?;
+    let prompt_path = res_dir.join("resources").join("prompts").join(name);
+    std::fs::read_to_string(&prompt_path)
+        .map_err(|e| format!("读取提示词模板失败 {}: {}", prompt_path.display(), e))
+}
+
+/// 导出给大模型分析的命令（三种模式）：
+/// - "full"（默认）：prompt_friendly.md + 全量扁平数据（现状行为）；
+/// - "brief"：prompt_friendly.md + 一次性精简数据（tier1 典籍原文 + 神煞短字段）；
+/// - "menu"：prompt_interactive.md + 精简数据 + 典籍/神煞菜单（交互式第一轮，供大模型勾选）。
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportArgs {
     pub args: AnalyzeArgs,
+    #[serde(default)]
+    pub mode: Option<String>, // "full" | "brief" | "menu"
 }
 
 #[tauri::command]
@@ -95,18 +109,55 @@ pub fn export_ai(app: AppHandle, export: ExportArgs) -> Result<String, String> {
     let result = analyze_bazi_detailed(&query)?;
     let ai_report = build_ai_report(&result, false);
 
-    let res_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("无法获取资源目录: {}", e))?;
-    let prompt_path = res_dir
-        .join("resources")
-        .join("prompts")
-        .join("prompt_friendly.md");
+    let mode = export.mode.as_deref().unwrap_or("full");
+    let (prompt_name, data) = match mode {
+        "menu" => ("prompt_interactive.md", build_ai_lite(&ai_report)),
+        "brief" => ("prompt_friendly.md", build_ai_brief(&ai_report)),
+        _ => ("prompt_friendly.md", build_ai_compact(&ai_report)),
+    };
+    let prompt = read_prompt(&app, prompt_name)?;
+    Ok(build_ai_save_bundle(&prompt, &data))
+}
 
-    let prompt = std::fs::read_to_string(&prompt_path)
-        .map_err(|e| format!("读取提示词模板失败 {}: {}", prompt_path.display(), e))?;
+/// 交互式第二轮：按大模型勾选结果取回原文材料，注入第二轮模板。
+/// 返回「prompt_round2.md（{{SELECTION}}/{{MATERIALS}} 已替换）」的纯文本包，
+/// 与第一轮消息同对话续发即可。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialArgs {
+    pub args: AnalyzeArgs,
+    #[serde(default)]
+    pub corpus_ids: Vec<i64>,
+    #[serde(default)]
+    pub shensha: Vec<String>,
+    /// 取回全量 60 年大运流年明细（第一轮只含关键年份）
+    #[serde(default)]
+    pub yearly_all: bool,
+    /// 取回全量岁运引动逐年明细（第一轮只含触发年份）
+    #[serde(default)]
+    pub suiyun_all: bool,
+}
 
-    let compact = build_ai_compact(&ai_report);
-    Ok(build_ai_save_bundle(&prompt, &compact))
+#[tauri::command]
+pub fn fetch_materials(app: AppHandle, request: MaterialArgs) -> Result<String, String> {
+    let query = build_query(&request.args)?;
+    let result = analyze_bazi_detailed(&query)?;
+    let ai_report = build_ai_report(&result, false);
+    // 空选自动降级为 tier1 典籍原文（引擎侧兜底）。
+    let materials = extract_materials(
+        &ai_report,
+        &request.corpus_ids,
+        &request.shensha,
+        request.yearly_all,
+        request.suiyun_all,
+    );
+
+    let template = read_prompt(&app, "prompt_round2.md")?;
+    let selection = format!(
+        "corpus_ids={:?} | shensha={:?} | yearly_all={} | suiyun_all={}",
+        request.corpus_ids, request.shensha, request.yearly_all, request.suiyun_all
+    );
+    Ok(template
+        .replace("{{SELECTION}}", &selection)
+        .replace("{{MATERIALS}}", &materials))
 }

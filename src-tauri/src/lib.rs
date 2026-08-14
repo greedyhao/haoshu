@@ -18,7 +18,11 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::analyze, commands::export_ai])
+        .invoke_handler(tauri::generate_handler![
+            commands::analyze,
+            commands::export_ai,
+            commands::fetch_materials
+        ])
         .run(tauri::generate_context!())
         .expect("error while running bazi-ui");
 }
