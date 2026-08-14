@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { reactive } from "vue";
 import type { AnalyzeArgs } from "../lib/tauri";
+import type { HistoryEntry } from "../lib/history";
 
-defineProps<{ loading: boolean }>();
-const emit = defineEmits<{ (e: "analyze", args: AnalyzeArgs): void }>();
+defineProps<{ loading: boolean; history: HistoryEntry[] }>();
+const emit = defineEmits<{
+  (e: "analyze", args: AnalyzeArgs): void;
+  (e: "delete-history", id: string): void;
+}>();
 
 const form = reactive({
   year: 1990,
@@ -32,6 +36,31 @@ function submit() {
     baziDirect: form.baziDirect.trim() || undefined,
     lean: false,
   });
+}
+
+// 点击历史记录 → 快速填充表单
+function fillFrom(e: HistoryEntry) {
+  form.year = e.args.year;
+  form.month = e.args.month;
+  form.day = e.args.day;
+  form.hour = e.args.hour;
+  form.minute = e.args.minute ?? 0;
+  form.gender = e.args.gender;
+  form.isGregorian = e.args.isGregorian ?? true;
+  form.isLeap = e.args.isLeap ?? false;
+  form.skipDayun = e.args.skipDayun ?? false;
+  form.baziDirect = e.args.baziDirect ?? "";
+}
+
+function formatTime(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const now = new Date();
+  const hm = pad(d.getHours()) + ":" + pad(d.getMinutes());
+  if (d.toDateString() === now.toDateString()) return "今天 " + hm;
+  const md = pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  if (d.getFullYear() === now.getFullYear()) return md + " " + hm;
+  return d.getFullYear() + "-" + md + " " + hm;
 }
 </script>
 
@@ -68,5 +97,29 @@ function submit() {
     <button :disabled="loading" @click="submit">
       {{ loading ? "分析中…" : "开始分析" }}
     </button>
+  </div>
+
+  <!-- 历史记录：点击快速填充，× 删除 -->
+  <div v-if="history.length" class="panel history-panel">
+    <div class="history-head">
+      <h2>历史记录</h2>
+      <span class="hint">点击回填表单</span>
+    </div>
+    <ul class="history-list">
+      <li v-for="e in history" :key="e.id" class="history-item">
+        <button class="history-fill" type="button" @click="fillFrom(e)">
+          <span class="history-bazi">{{ e.bazi }}</span>
+          <span class="history-meta">{{ e.dateLabel }} · {{ formatTime(e.ts) }}</span>
+        </button>
+        <button
+          class="history-del"
+          type="button"
+          title="删除该记录"
+          @click="emit('delete-history', e.id)"
+        >
+          ×
+        </button>
+      </li>
+    </ul>
   </div>
 </template>

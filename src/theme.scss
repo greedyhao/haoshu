@@ -48,37 +48,15 @@ body {
   font-size: 13px;
 }
 
-/* 顶栏折叠开关：常驻，可随时展开/收起输入侧栏 */
-.toggle-side {
-  flex: 0 0 auto;
-  margin-top: 2px;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--text);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.toggle-side:hover {
-  background: #eef2f7;
-}
-
+/* 两步视图（输入页 → 结果页）：单列流，无折叠开关 */
 .app-main {
-  display: grid;
-  /* 内容列用 minmax(0,1fr) 而非 1fr，避免被内部不可收缩内容（表格/长串）撑破导致不自适应 */
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+  display: block;
 }
 
-/* 输入侧栏收起：仅保留结果区占满宽度 */
-.app-main.collapsed {
-  grid-template-columns: 1fr;
-}
-.app-main.collapsed .input-view {
-  display: none;
+/* 输入页：表单居中卡片，桌面与移动端一致 */
+.input-page {
+  max-width: 620px;
+  margin: 0 auto;
 }
 
 .panel {
@@ -197,6 +175,73 @@ body {
 .input-view button:disabled {
   background: #9bb6d6;
   cursor: default;
+}
+
+/* 历史记录面板（输入页） */
+.history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.history-head h2 {
+  margin-bottom: 8px;
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+}
+.history-item:first-child {
+  border-top: none;
+}
+.history-fill {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: none;
+  border: none;
+  padding: 8px 4px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font-size: 13px;
+  border-radius: 6px;
+}
+.history-fill:hover {
+  background: #eef2f7;
+}
+.history-bazi {
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.history-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+.history-del {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.history-del:hover {
+  color: #d32f2f;
+  background: #fdecea;
 }
 
 /* BaziCard */
@@ -378,11 +423,6 @@ body {
   }
   .subtitle {
     margin: 2px 0 12px;
-  }
-  /* 桌面两栏（侧边表单 + 内容）在手机上回流为单列：表单在上、结果在下 */
-  .app-main {
-    grid-template-columns: 1fr;
-    gap: 12px;
   }
   /* 兜底：任何未自带断点的 .grid-2 在窄屏单列 */
   .grid-2 {
