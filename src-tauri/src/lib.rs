@@ -24,5 +24,5 @@ pub fn run() {
             commands::fetch_materials
         ])
         .run(tauri::generate_context!())
-        .expect("error while running bazi-ui");
+        .expect("error while running haoshu");
 }

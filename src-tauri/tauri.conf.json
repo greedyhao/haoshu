@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "bazi-ui",
+  "productName": "haoshu",
   "version": "0.1.0",
-  "identifier": "com.bazi.ui",
+  "identifier": "com.haoshu.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "八字命理分析",
+        "title": "东方术数",
         "width": 1120,
         "height": 820,
         "minWidth": 920,

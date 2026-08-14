@@ -91,8 +91,8 @@ function onBackToInput() {
   <div class="app">
     <header class="app-header">
       <div class="title-col">
-        <h1>八字命理分析</h1>
-        <p class="subtitle">Tauri 2.0 · Rust 引擎 · Vue 3</p>
+        <h1>东方术数</h1>
+        <p class="subtitle">haoshu（好术 · 东方术数）· 当前支持八字四柱分析</p>
       </div>
     </header>
     <main class="app-main">

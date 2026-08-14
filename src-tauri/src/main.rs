@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    bazi_ui_lib::run()
+    haoshu_lib::run()
 }
