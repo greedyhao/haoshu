@@ -4,6 +4,7 @@ use bazi_analyzer::ai_export::{
 };
 use bazi_analyzer::bazi::Gender;
 use bazi_analyzer::service::{AnalysisQuery, analyze_bazi_detailed};
+use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri::Manager;
 
@@ -79,8 +80,19 @@ pub fn analyze(args: AnalyzeArgs) -> Result<AiReport, String> {
     Ok(build_ai_report(&result, args.lean))
 }
 
-/// 读取 resources/prompts/ 下的提示词模板（dev 与打包后走同一 resource_dir 探测逻辑）。
+/// 读取 resources/prompts/ 下的提示词模板。
+/// 优先从已拷贝到应用私有可写目录的资源读（Android 上 resource_dir 是
+/// `asset://localhost/` 虚拟路径，std::fs 读不到）；桌面端兜底走 resource_dir。
 fn read_prompt(app: &AppHandle, name: &str) -> Result<String, String> {
+    if let Ok(d) = std::env::var("HAOSHU_RESOURCES_DIR") {
+        let p = PathBuf::from(&d)
+            .join("resources")
+            .join("prompts")
+            .join(name);
+        if let Ok(s) = std::fs::read_to_string(&p) {
+            return Ok(s);
+        }
+    }
     let res_dir = app
         .path()
         .resource_dir()
