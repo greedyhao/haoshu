@@ -28,6 +28,13 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 18px;
+  // 安全区域（safe-area）：Tauri Android/iOS 的 WebView 全屏渲染，
+  // 顶部标题会压在系统状态栏下、底部可能被手势条遮挡。
+  // 叠加 env(safe-area-inset-*) 后让内容整体下沉；桌面端这些值恒为 0，行为不变。
+  padding-top: calc(18px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(18px + env(safe-area-inset-left, 0px));
+  padding-right: calc(18px + env(safe-area-inset-right, 0px));
 }
 
 .app-header {
