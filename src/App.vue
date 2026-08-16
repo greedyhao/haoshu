@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import InputView from "./views/InputView.vue";
 import ResultView from "./views/ResultView.vue";
 import type { AiReport } from "./types/aiReport";
 import { analyze, type AnalyzeArgs } from "./lib/tauri";
+import {
+  getAppVersion,
+  checkForUpdate,
+  openReleases,
+  type UpdateInfo,
+} from "./lib/update";
 import {
   loadHistory,
   saveHistory,
@@ -19,6 +25,41 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 const lastArgs = ref<AnalyzeArgs | null>(null);
 const history = ref<HistoryEntry[]>(loadHistory());
+
+// 版本显示与更新检查
+const appVersion = ref("…");
+const checking = ref(false);
+const updateInfo = ref<UpdateInfo | null>(null);
+const updateDismissed = ref(false); // 本次会话内手动关闭后不再弹横幅
+
+async function doCheck(showErrors = false) {
+  if (checking.value) return;
+  checking.value = true;
+  try {
+    const info = await checkForUpdate(appVersion.value);
+    updateInfo.value = info;
+    updateDismissed.value = false;
+  } catch (e) {
+    // 网络失败 / GitHub API 限流：静默失败，不阻塞使用
+    if (showErrors) console.warn("检查更新失败：", e);
+  } finally {
+    checking.value = false;
+  }
+}
+
+function dismissUpdate() {
+  updateDismissed.value = true;
+}
+
+function goToReleases() {
+  if (updateInfo.value) void openReleases(updateInfo.value.url);
+}
+
+// 启动：取版本号并静默检查一次更新
+onMounted(async () => {
+  appVersion.value = await getAppVersion();
+  await doCheck();
+});
 
 function scrollTop() {
   window.scrollTo({ top: 0 });
@@ -95,6 +136,29 @@ function onBackToInput() {
         <p class="subtitle">haoshu（好术 · 东方术数）· 当前支持八字四柱分析</p>
       </div>
     </header>
+
+    <!-- 更新提示横幅：检测到新版本时显示 -->
+    <div
+      v-if="updateInfo?.hasUpdate && !updateDismissed"
+      class="update-banner"
+      role="alert"
+    >
+      <span class="update-text">
+        发现新版本 v{{ updateInfo.latest }}（当前 v{{ appVersion }}）
+      </span>
+      <button class="update-go" type="button" @click="goToReleases">
+        前往下载
+      </button>
+      <button
+        class="update-close"
+        type="button"
+        title="关闭"
+        @click="dismissUpdate"
+      >
+        ×
+      </button>
+    </div>
+
     <main class="app-main">
       <p v-if="error" class="error">{{ error }}</p>
 
@@ -119,5 +183,18 @@ function onBackToInput() {
         <p v-else class="hint">请返回输入页录入生辰。</p>
       </section>
     </main>
+
+    <!-- 页脚：自身版本号 + 手动检查更新 -->
+    <footer class="app-footer">
+      <span class="ver">好术 haoshu v{{ appVersion }}</span>
+      <button
+        class="check-update"
+        type="button"
+        :disabled="checking"
+        @click="doCheck(true)"
+      >
+        {{ checking ? "检查中…" : "检查更新" }}
+      </button>
+    </footer>
   </div>
 </template>
