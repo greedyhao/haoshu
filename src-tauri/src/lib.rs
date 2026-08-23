@@ -9,6 +9,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        // Android 文件系统插件（MediaStore 写公共目录 + 系统分享/查看面板）；
+        // 桌面端为 no-op，不影响桌面行为。
+        .plugin(tauri_plugin_android_fs::init())
         .setup(|app| {
             // 让引擎读取打包的 SQLite 数据（corpus.db / shensha.db）与提示词（prompts）。
             // 引擎打开数据库前会读取 BAZI_DATA_DIR 环境变量；read_prompt 读取 HAOSHU_RESOURCES_DIR。

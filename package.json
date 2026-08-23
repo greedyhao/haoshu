@@ -14,7 +14,8 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-dialog": "^2",
-    "@tauri-apps/plugin-fs": "^2"
+    "@tauri-apps/plugin-fs": "^2",
+    "tauri-plugin-android-fs-api": "^29"
   },
   "devDependencies": {
     "sass": "^1.80.0",

@@ -8,8 +8,7 @@ import {
   type ExportMode,
   type MaterialSelection,
 } from "../lib/tauri";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { saveExportFile } from "../lib/saveExport";
 import { renderMarkdown } from "../lib/markdown";
 import BaziCard from "../components/BaziCard.vue";
 import WuXingChart from "../components/WuXingChart.vue";
@@ -58,17 +57,12 @@ async function onExport() {
     const bundle = await export_ai(props.args, exportMode.value);
     const defaultName =
       exportMode.value === "menu" ? "八字分析-第一轮.txt" : "八字分析.txt";
-    const path = await save({
-      title: "导出给大模型分析",
-      defaultPath: defaultName,
-      filters: [{ name: "文本文件", extensions: ["txt"] }],
-    });
-    if (!path) {
-      exportMsg.value = "已取消导出。";
+    const res = await saveExportFile(bundle, defaultName, "txt");
+    if (res.canceled) {
+      exportMsg.value = res.message;
       return;
     }
-    await writeTextFile(path, bundle);
-    exportMsg.value = "已导出到：" + path;
+    exportMsg.value = res.message;
   } catch (e) {
     exportMsg.value = "导出失败：" + String(e);
   } finally {
@@ -117,17 +111,12 @@ async function onRound2() {
   try {
     const sel = parseSelection(selText.value);
     const bundle = await fetch_materials(props.args, sel);
-    const path = await save({
-      title: "导出第二轮（注入所选材料）",
-      defaultPath: "八字分析-第二轮.txt",
-      filters: [{ name: "文本文件", extensions: ["txt"] }],
-    });
-    if (!path) {
-      round2Msg.value = "已取消导出。";
+    const res = await saveExportFile(bundle, "八字分析-第二轮.txt", "txt");
+    if (res.canceled) {
+      round2Msg.value = res.message;
       return;
     }
-    await writeTextFile(path, bundle);
-    round2Msg.value = "已导出第二轮到：" + path;
+    round2Msg.value = res.message;
   } catch (e) {
     round2Msg.value = "生成失败：" + String(e);
   } finally {
@@ -546,14 +535,13 @@ async function onSaveReport(kind: "md" | "html") {
   try {
     const isMd = kind === "md";
     const content = isMd ? llmReport.value : buildReportHtml();
-    const path = await save({
-      title: "导出分析报告",
-      defaultPath: isMd ? "AI分析报告.md" : "AI分析报告.html",
-      filters: [{ name: isMd ? "Markdown" : "HTML", extensions: [kind] }],
-    });
-    if (!path) return;
-    await writeTextFile(path, content);
-    llmActionMsg.value = "已导出：" + path;
+    const res = await saveExportFile(
+      content,
+      isMd ? "AI分析报告.md" : "AI分析报告.html",
+      kind
+    );
+    if (res.canceled) return;
+    llmActionMsg.value = res.message;
   } catch (e) {
     llmActionMsg.value = "导出失败：" + String(e);
   }

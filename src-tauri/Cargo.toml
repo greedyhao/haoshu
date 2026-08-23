@@ -22,6 +22,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+# Android 专用文件系统插件：经 MediaStore 写公共「下载」目录（不走 SAF，毫秒级）+
+# 系统分享/查看面板。桌面端为 no-op，桌面继续用官方 tauri-plugin-fs。
+tauri-plugin-android-fs = "29"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 直接复用现有引擎（path 依赖，零拷贝，不改原代码）
