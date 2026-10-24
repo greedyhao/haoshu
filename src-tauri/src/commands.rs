@@ -1,9 +1,16 @@
 use bazi_analyzer::ai_export::{
-    build_ai_brief, build_ai_compact, build_ai_lite, build_ai_report, build_ai_save_bundle,
-    extract_materials, AiReport,
+    build_ai_brief, build_ai_compact, build_ai_lite, build_ai_report, build_ai_save_bundle, AiReport,
 };
 use bazi_analyzer::bazi::Gender;
-use bazi_analyzer::service::{AnalysisQuery, analyze_bazi_detailed};
+use bazi_analyzer::claims::{
+    parse_claims_json, render_claims_markdown, validate_claims, ClaimsDoc, ValidationReport,
+};
+use bazi_analyzer::context::{build_analysis_context, ContextBudget};
+use bazi_analyzer::selection::{
+    parse_selection_json, select_materials, selection_summary, MaterialSelection, SelectionError,
+};
+use bazi_analyzer::service::{analyze_bazi_detailed, AnalysisQuery};
+use serde::Serialize;
 use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri::Manager;
@@ -33,6 +40,9 @@ pub struct AnalyzeArgs {
     pub liu_yue_year: Option<i32>,
     #[serde(default)]
     pub lean: bool,
+    /// 分析基准时刻（YYYY-MM-DD 或 ISO8601）。缺省取当前时刻。
+    #[serde(default)]
+    pub as_of: Option<String>,
 }
 
 /// 把前端参数映射为引擎 `AnalysisQuery`（analyze 与 export 共用，避免重复）。
@@ -67,11 +77,12 @@ fn build_query(args: &AnalyzeArgs) -> Result<AnalysisQuery, String> {
         bazi_direct,
         qi_yun_year: None,
         liu_yue_year: args.liu_yue_year,
+        as_of: args.as_of.clone(),
         inferred_birth: None,
     })
 }
 
-/// 核心分析命令：前端 invoke('analyze', args) → 返回完整 AiReport JSON。
+/// 核心分析命令：前端 invoke('analyze', args) → 返回完整 AiReport JSON（GUI 渲染用）。
 /// 同进程直接调用引擎，无子进程冷启动、无 HTTP server。
 #[tauri::command]
 pub fn analyze(args: AnalyzeArgs) -> Result<AiReport, String> {
@@ -102,74 +113,205 @@ fn read_prompt(app: &AppHandle, name: &str) -> Result<String, String> {
         .map_err(|e| format!("读取提示词模板失败 {}: {}", prompt_path.display(), e))
 }
 
-/// 导出给大模型分析的命令（三种模式）：
-/// - "full"（默认）：prompt_friendly.md + 全量扁平数据（现状行为）；
-/// - "brief"：prompt_friendly.md + 一次性精简数据（tier1 典籍原文 + 神煞短字段）；
-/// - "menu"：prompt_interactive.md + 精简数据 + 典籍/神煞菜单（交互式第一轮，供大模型勾选）。
+/// 导出给大模型分析的命令（评审 P1-3 整改后的三种模式）：
+/// - "context"（默认）：prompt_interactive.md + **AnalysisContext**（核心事实/引擎论断/
+///   争议项/未知项 + 证据目录 + 取材协议）。已做注意力优化与 token 预算，
+///   是全量包体积的 ~4%，作为喂模型的正路；
+/// - "brief"：prompt_friendly.md + 一次性精简数据（单轮省 token）；
+/// - "debug-full"：prompt_friendly.md + 全量扁平数据（**仅调试用**，体积可达数百 KB）。
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportArgs {
     pub args: AnalyzeArgs,
     #[serde(default)]
-    pub mode: Option<String>, // "full" | "brief" | "menu"
+    pub mode: Option<String>, // "context" | "brief" | "debug-full"
+}
+
+/// 导出结果（含体积与 token 估算，便于前端提示"是不是该用全量包"）
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    /// 完整提示词包（提示词 + 数据段）
+    pub bundle: String,
+    /// 实际使用的模式
+    pub mode: String,
+    /// 数据段字符数
+    pub data_chars: usize,
+    /// 数据段 token 估算
+    pub data_tokens: usize,
 }
 
 #[tauri::command]
-pub fn export_ai(app: AppHandle, export: ExportArgs) -> Result<String, String> {
+pub fn export_ai(app: AppHandle, export: ExportArgs) -> Result<ExportResult, String> {
     let query = build_query(&export.args)?;
     // 导出始终用全量（lean=false），保证喂给大模型的流年/神煞/典籍等数据完整。
     let result = analyze_bazi_detailed(&query)?;
     let ai_report = build_ai_report(&result, false);
 
-    let mode = export.mode.as_deref().unwrap_or("full");
+    let mode = export.mode.as_deref().unwrap_or("context");
     let (prompt_name, data) = match mode {
-        "menu" => ("prompt_interactive.md", build_ai_lite(&ai_report)),
         "brief" => ("prompt_friendly.md", build_ai_brief(&ai_report)),
-        _ => ("prompt_friendly.md", build_ai_compact(&ai_report)),
+        "debug-full" => ("prompt_friendly.md", build_ai_compact(&ai_report)),
+        "menu" | "context" => {
+            // 兼容旧的前端 "menu" 命名
+            let ctx = build_analysis_context(&result, &ai_report, ContextBudget::default());
+            let text = format!("{}{}", ctx.render(), ctx.selection_protocol());
+            ("prompt_interactive.md", text)
+        }
+        other => return Err(format!("未知导出模式：{other}")),
     };
     let prompt = read_prompt(&app, prompt_name)?;
-    Ok(build_ai_save_bundle(&prompt, &data))
+    let data_tokens = bazi_analyzer::context::estimate_tokens(&data);
+    let data_chars = data.chars().count();
+    Ok(ExportResult {
+        bundle: build_ai_save_bundle(&prompt, &data),
+        mode: mode.to_string(),
+        data_chars,
+        data_tokens,
+    })
 }
 
-/// 交互式第二轮：按大模型勾选结果取回原文材料，注入第二轮模板。
-/// 返回「prompt_round2.md（{{SELECTION}}/{{MATERIALS}} 已替换）」的纯文本包，
-/// 与第一轮消息同对话续发即可。
+/// 交互式第二轮：按大模型勾选结果取回原文材料。
+///
+/// **严格协议**（评审 P1-4）：`selection` 是模型回复原文，由引擎侧严格解析与校验；
+/// 未知 ID / 越界序号 / 未知神煞 / 超上限 / 解析失败一律返回
+/// `Err(JSON 序列化的错误数组)`，**不做任何兜底替换**。
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MaterialArgs {
     pub args: AnalyzeArgs,
-    #[serde(default)]
-    pub corpus_ids: Vec<i64>,
-    #[serde(default)]
-    pub shensha: Vec<String>,
-    /// 取回全量 60 年大运流年明细（第一轮只含关键年份）
-    #[serde(default)]
-    pub yearly_all: bool,
-    /// 取回全量岁运引动逐年明细（第一轮只含触发年份）
-    #[serde(default)]
-    pub suiyun_all: bool,
+    /// 模型输出的取材 JSON 原文（不是已解析的对象）
+    pub selection: String,
+}
+
+/// 取材结果
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialResult {
+    /// 第二轮完整提示词包
+    pub bundle: String,
+    /// 取材摘要（实际命中了什么）
+    pub summary: String,
+    /// 命中的 corpus_id
+    pub resolved_corpus_ids: Vec<i64>,
+    /// 命中的菜单序号
+    pub resolved_menu_indexes: Vec<usize>,
+    /// 命中的神煞
+    pub resolved_shensha: Vec<String>,
+    /// 非致命提示
+    pub warnings: Vec<String>,
+    /// 材料字符数
+    pub material_chars: usize,
 }
 
 #[tauri::command]
-pub fn fetch_materials(app: AppHandle, request: MaterialArgs) -> Result<String, String> {
+pub fn fetch_materials(app: AppHandle, request: MaterialArgs) -> Result<MaterialResult, String> {
+    let selection: MaterialSelection = parse_selection_json(&request.selection)
+        .map_err(|errs| serde_json::to_string(&errs).unwrap_or_else(|_| "取材请求不合法".into()))?;
+
     let query = build_query(&request.args)?;
     let result = analyze_bazi_detailed(&query)?;
     let ai_report = build_ai_report(&result, false);
-    // 空选自动降级为 tier1 典籍原文（引擎侧兜底）。
-    let materials = extract_materials(
-        &ai_report,
-        &request.corpus_ids,
-        &request.shensha,
-        request.yearly_all,
-        request.suiyun_all,
-    );
+
+    let bundle = select_materials(&ai_report, &selection)
+        .map_err(|errs| serde_json::to_string(&errs).unwrap_or_else(|_| "取材失败".into()))?;
 
     let template = read_prompt(&app, "prompt_round2.md")?;
-    let selection = format!(
-        "corpus_ids={:?} | shensha={:?} | yearly_all={} | suiyun_all={}",
-        request.corpus_ids, request.shensha, request.yearly_all, request.suiyun_all
-    );
-    Ok(template
-        .replace("{{SELECTION}}", &selection)
-        .replace("{{MATERIALS}}", &materials))
+    let summary = selection_summary(&selection, &bundle);
+    let composed = template
+        .replace("{{SELECTION}}", &summary)
+        .replace("{{MATERIALS}}", &bundle.text);
+
+    Ok(MaterialResult {
+        bundle: composed,
+        summary,
+        material_chars: bundle.text.chars().count(),
+        resolved_corpus_ids: bundle.resolved_corpus_ids,
+        resolved_menu_indexes: bundle.resolved_menu_indexes,
+        resolved_shensha: bundle.resolved_shensha,
+        warnings: bundle.warnings,
+    })
+}
+
+/// 校验并渲染第三轮 claims。
+///
+/// 模型必须输出 `{"claims":[{claim_type,text,fact_ids,rule_id,corpus_ids,quotes,section}]}`；
+/// 引擎校验四柱 / 流年干支 / 当前大运 / 证据 ID / 引文是否真出自该典籍，
+/// 只渲染通过校验的条目，被拒条目进附录。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimsArgs {
+    pub args: AnalyzeArgs,
+    /// 模型输出的 claims JSON 原文
+    pub raw: String,
+}
+
+/// 校验渲染结果
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimsResult {
+    /// 本地渲染的 Markdown（只含通过校验的结论）
+    pub markdown: String,
+    /// 校验报告
+    pub validation: ValidationReport,
+    /// 解析后的结构（便于前端调试展示）
+    pub claims: ClaimsDoc,
+}
+
+#[tauri::command]
+pub fn verify_and_render_claims(
+    request: ClaimsArgs,
+) -> Result<ClaimsResult, Vec<SelectionError>> {
+    let doc = parse_claims_json(&request.raw).map_err(|errs| {
+        errs.into_iter()
+            .map(|e| SelectionError {
+                code: e.code,
+                field: "claims".into(),
+                value: e.claim_index.to_string(),
+                message: e.message,
+            })
+            .collect::<Vec<_>>()
+    })?;
+
+    let query = build_query(&request.args).map_err(|e| {
+        vec![SelectionError {
+            code: "BAD_ARGS".into(),
+            field: "args".into(),
+            value: String::new(),
+            message: e,
+        }]
+    })?;
+    let result = analyze_bazi_detailed(&query).map_err(|e| {
+        vec![SelectionError {
+            code: "ANALYZE_FAILED".into(),
+            field: "args".into(),
+            value: String::new(),
+            message: e,
+        }]
+    })?;
+    let ai_report = build_ai_report(&result, false);
+    let ctx = build_analysis_context(&result, &ai_report, ContextBudget::default());
+    let validation = validate_claims(&doc, &ai_report, &ctx);
+    let markdown = render_claims_markdown(&doc, &validation);
+    Ok(ClaimsResult {
+        markdown,
+        validation,
+        claims: doc,
+    })
+}
+
+/// 只读暴露：查看本轮 AnalysisContext 的渲染文本（调试/教学用，不影响导出）
+#[tauri::command]
+pub fn preview_context(args: AnalyzeArgs) -> Result<String, String> {
+    let query = build_query(&args)?;
+    let result = analyze_bazi_detailed(&query)?;
+    let ai_report = build_ai_report(&result, false);
+    let ctx = build_analysis_context(&result, &ai_report, ContextBudget::default());
+    Ok(format!("{}{}", ctx.render(), ctx.selection_protocol()))
+}
+
+/// 兼容：保留 _lite 引用以免 dead_code 警告（旧菜单包在 debug 时仍可选）
+#[allow(dead_code)]
+fn _legacy_menu(report: &AiReport) -> String {
+    build_ai_lite(report)
 }

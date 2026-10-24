@@ -5,8 +5,11 @@ import type { AnalyzeArgs } from "../lib/tauri";
 import {
   export_ai,
   fetch_materials,
+  verify_claims,
+  parseSelectionErrors,
   type ExportMode,
-  type MaterialSelection,
+  type SelectionError,
+  type ValidationReport,
 } from "../lib/tauri";
 import { saveExportFile } from "../lib/saveExport";
 import { renderMarkdown } from "../lib/markdown";
@@ -38,12 +41,12 @@ const tabs = [
 // ================= 导出给大模型（三种模式） =================
 const exporting = ref(false);
 const exportMsg = ref<string | null>(null);
-const exportMode = ref<ExportMode>("full");
+const exportMode = ref<ExportMode>("context");
 
 const modeLabels: Record<ExportMode, string> = {
-  full: "全量包",
+  context: "上下文包（推荐·已做注意力优化）",
   brief: "精简包（单轮省 token）",
-  menu: "菜单包（交互第一轮）",
+  "debug-full": "全量包（仅调试·体积巨大）",
 };
 
 async function onExport() {
@@ -54,15 +57,15 @@ async function onExport() {
   exporting.value = true;
   exportMsg.value = null;
   try {
-    const bundle = await export_ai(props.args, exportMode.value);
+    const out = await export_ai(props.args, exportMode.value);
     const defaultName =
-      exportMode.value === "menu" ? "八字分析-第一轮.txt" : "八字分析.txt";
-    const res = await saveExportFile(bundle, defaultName, "txt");
-    if (res.canceled) {
-      exportMsg.value = res.message;
-      return;
-    }
-    exportMsg.value = res.message;
+      exportMode.value === "context" ? "八字分析-第一轮.txt" : "八字分析.txt";
+    const saveRes = await saveExportFile(out.bundle, defaultName, "txt");
+    const meta = `数据段 ${out.dataChars} 字符 / 约 ${out.dataTokens} tokens`;
+    exportMsg.value = saveRes.canceled
+      ? saveRes.message
+      : `${saveRes.message}（${meta}）`;
+    if (saveRes.canceled) return;
   } catch (e) {
     exportMsg.value = "导出失败：" + String(e);
   } finally {
@@ -74,31 +77,16 @@ async function onExport() {
 const selText = ref("");
 const round2Busy = ref(false);
 const round2Msg = ref<string | null>(null);
+const selSummary = ref<string | null>(null);
 
-// 解析大模型回复中的 JSON 勾选（容忍围栏/前后缀；失败则空选→引擎降级 tier1）。
-function parseSelection(text: string): MaterialSelection {
-  const m = text.match(/\{[\s\S]*\}/);
-  if (m) {
-    try {
-      const obj = JSON.parse(m[0]);
-      const corpusIds = Array.isArray(obj.corpus_ids)
-        ? obj.corpus_ids.filter((x: unknown) => typeof x === "number")
-        : [];
-      const shensha = Array.isArray(obj.shensha)
-        ? obj.shensha.filter((x: unknown) => typeof x === "string")
-        : [];
-      return {
-        corpusIds,
-        shensha,
-        yearlyAll: obj.yearly_all === true,
-        suiyunAll: obj.suiyun_all === true,
-        reason: typeof obj.reason === "string" ? obj.reason : undefined,
-      };
-    } catch {
-      /* 忽略，走空选兜底 */
-    }
-  }
-  return { corpusIds: [], shensha: [] };
+const selErrors = ref<SelectionError[]>([]);
+
+// 取材错误的可读文本（引擎严格模式：未知 ID / 解析失败都会报错，不再静默兜底）
+function selectionErrorText(errs: SelectionError[]): string {
+  if (!errs.length) return "";
+  return errs
+    .map((e) => `[${e.code}] ${e.field}${e.value ? "=" + e.value : ""}：${e.message}`)
+    .join("\n");
 }
 
 async function onRound2() {
@@ -108,17 +96,25 @@ async function onRound2() {
   }
   round2Busy.value = true;
   round2Msg.value = null;
+  selErrors.value = [];
   try {
-    const sel = parseSelection(selText.value);
-    const bundle = await fetch_materials(props.args, sel);
-    const res = await saveExportFile(bundle, "八字分析-第二轮.txt", "txt");
+    // 严格取材：把模型回复原文交给引擎解析与校验，任何未知 ID / 越界序号都会报错
+    const out = await fetch_materials(props.args, selText.value);
+    const res = await saveExportFile(out.bundle, "八字分析-第二轮.txt", "txt");
     if (res.canceled) {
       round2Msg.value = res.message;
       return;
     }
     round2Msg.value = res.message;
+    selSummary.value = out.summary;
   } catch (e) {
-    round2Msg.value = "生成失败：" + String(e);
+    const errs = parseSelectionErrors(e);
+    if (errs.length) {
+      selErrors.value = errs;
+      round2Msg.value = "取材被拒绝（未做任何兜底替换）：\n" + selectionErrorText(errs);
+    } else {
+      round2Msg.value = "生成失败：" + String(e);
+    }
   } finally {
     round2Busy.value = false;
   }
@@ -144,6 +140,8 @@ const llmRunning = ref(false);
 const llmError = ref<string | null>(null);
 const llmReport = ref<string | null>(null);
 const llmSelectionText = ref<string | null>(null);
+const selWarnings = ref<string[]>([]);
+const claimsValidation = ref<ValidationReport | null>(null);
 const llmStatus = ref<string | null>(null);
 const round1Raw = ref<string | null>(null);
 const llmProgress = ref<string | null>(null);
@@ -384,23 +382,6 @@ function streamComplete(
   });
 }
 
-function formatSelection(sel: MaterialSelection): string {
-  const parts: string[] = [];
-  if (sel.corpusIds.length) {
-    const names = sel.corpusIds.map((id) => {
-      const c = props.report.classics.find((x) => x.corpus_id === id);
-      return c ? c.source + "·" + c.title : "id=" + id;
-    });
-    parts.push("典籍：" + names.join("、"));
-  }
-  if (sel.shensha.length) parts.push("神煞：" + sel.shensha.join("、"));
-  if (sel.yearlyAll) parts.push("大运流年逐年全量");
-  if (sel.suiyunAll) parts.push("岁运引动逐年全量");
-  if (sel.reason) parts.push("理由：" + sel.reason);
-  return parts.length
-    ? parts.join("；")
-    : "（未索取任何材料，引擎自动降级为 tier1 典籍）";
-}
 
 function onLlmCancel() {
   if (llmAbort) {
@@ -438,11 +419,15 @@ async function onLlmRun() {
       llmProgress.value = "已用 " + secs + "s";
     }
   }, 500);
+  claimsValidation.value = null;
+  selErrors.value = [];
   try {
-    // 第一轮：菜单包（排盘 + 引擎结论 + 材料菜单），不开思考（快）
-    llmStatus.value = "第一轮：正在生成菜单包…";
-    const bundle1 = await export_ai(props.args, "menu");
-    llmStatus.value = "第一轮：菜单包已发送，等待模型勾选材料…";
+    // ── 第一轮：AnalysisContext（核心事实/引擎论断/争议项/未知项 + 证据目录 + 取材协议）
+    // 已做注意力优化与 token 预算，不再把 261KB 全量包直接塞给模型。
+    llmStatus.value = "第一轮：正在生成分析上下文…";
+    const ctxBundle = await export_ai(props.args, "context");
+    const bundle1 = ctxBundle.bundle;
+    llmStatus.value = "第一轮：上下文已发送，等待模型勾选材料…";
     const reply1 = await streamComplete(
       [{ role: "user", content: bundle1 }],
       {
@@ -453,15 +438,31 @@ async function onLlmRun() {
       llmAbort.signal,
       false
     );
-    const sel = parseSelection(reply1);
-    llmSelectionText.value = formatSelection(sel);
-    // 第二轮：注入模型勾选的材料原文，同对话续写完整解读（流式 + 思考强度 max）
-    llmStatus.value = "第二轮：正在取回所选材料原文…";
-    const round2 = await fetch_materials(props.args, sel);
+
+    // ── 第二轮取材：严格校验，未知 ID / 解析失败直接报错（不兜底）
+    llmStatus.value = "取材：正在校验模型勾选…";
+    let round2: string;
+    try {
+      const mat = await fetch_materials(props.args, reply1);
+      round2 = mat.bundle;
+      llmSelectionText.value = mat.summary;
+      if (mat.warnings.length) {
+        selWarnings.value = mat.warnings;
+      }
+    } catch (e) {
+      const errs = parseSelectionErrors(e);
+      if (errs.length) {
+        selErrors.value = errs;
+        throw new Error("取材被拒绝（未做任何兜底替换）：\n" + selectionErrorText(errs));
+      }
+      throw e;
+    }
+
+    // ── 第三轮：模型只输出 claims JSON（不写散文），保证可机器校验
     llmPhase.value = "round2";
-    llmStatus.value = "第二轮：正在生成解读报告…";
+    llmStatus.value = "第三轮：正在生成结构化结论（claims JSON）…";
     llmReport.value = "";
-    const final = await streamComplete(
+    const claimsRaw = await streamComplete(
       [
         { role: "user", content: bundle1 },
         { role: "assistant", content: reply1 },
@@ -480,8 +481,13 @@ async function onLlmRun() {
       llmAbort.signal,
       true
     );
-    llmReport.value = final;
-    llmStatus.value = "完成。";
+
+    // ── 本地校验（四柱 / 流年 / 当前大运 / 证据 ID / 引文）后渲染 Markdown
+    llmStatus.value = "校验：正在核对结论与证据…";
+    const rendered = await verify_claims(props.args, claimsRaw);
+    claimsValidation.value = rendered.validation;
+    llmReport.value = rendered.markdown;
+    llmStatus.value = `完成。${rendered.validation.total} 条结论，通过 ${rendered.validation.accepted} 条，拒绝 ${rendered.validation.rejected} 条。`;
   } catch (e) {
     if (llmAbort && llmAbort.signal.aborted) {
       llmStatus.value = "已取消。";
@@ -603,10 +609,10 @@ function onPdfFrameLoad() {
       <span v-if="exportMsg" class="export-msg">{{ exportMsg }}</span>
     </div>
 
-    <!-- 菜单包的第二轮回填（手动往返外部大模型时使用） -->
-    <div v-if="exportMode === 'menu'" class="round2-box">
+    <!-- 上下文包的第二轮回填（手动往返外部大模型时使用） -->
+    <div v-if="exportMode === 'context'" class="round2-box">
       <div class="round2-head">
-        <span class="label">交互式第二轮：把大模型回复的勾选 JSON 粘贴到这里</span>
+        <span class="label">第二轮取材：把大模型回复的勾选 JSON 原文粘贴到这里（引擎严格校验，未知 ID 直接报错）</span>
         <button class="export-btn" :disabled="round2Busy || !args" @click="onRound2">
           {{ round2Busy ? "生成中…" : "生成第二轮包" }}
         </button>
@@ -616,8 +622,14 @@ function onPdfFrameLoad() {
         v-model="selText"
         class="sel-input"
         rows="3"
-        placeholder='{"corpus_ids": [72, 2220], "shensha": ["天乙贵人"], "reason": "…"}'
+        placeholder='{"corpus_ids": [1246, 106], "menu_indexes": [], "shensha": ["天乙贵人"], "yearly_all": false, "suiyun_all": false, "reason": "…"}'
       ></textarea>
+      <ul v-if="selErrors.length" class="sel-errors">
+        <li v-for="(e, i) in selErrors" :key="i">
+          <code>[{{ e.code }}]</code> {{ e.field }}{{ e.value ? "=" + e.value : "" }}：{{ e.message }}
+        </li>
+      </ul>
+      <div v-if="selSummary" class="sel-summary">{{ selSummary }}</div>
     </div>
 
     <div class="tabs">
@@ -717,9 +729,12 @@ function onPdfFrameLoad() {
         </button>
       </div>
       <p class="llm-hint">
-        流式输出：两轮请求实时显示进度，解读报告随生成逐字显示，可随时取消。第二轮开启模型思考且
-        强度拉满（reasoning_effort=max），思考期间显示「模型思考中…」。完成后报告自动渲染，
-        可导出 .md / .html / .pdf（PDF 在打印对话框选「另存为 PDF」）。密钥仅保存在本机浏览器
+        三段式流程：① 发送 AnalysisContext（核心事实/引擎论断/争议项/未知项 + 证据目录，
+        已做注意力优化与 token 预算）→ ② 模型勾选材料，引擎**严格校验**后取回原文
+        （未知 ID、越界序号、解析失败一律报错，不做兜底）→ ③ 模型只输出 claims JSON，
+        引擎本地校验四柱 / 流年干支 / 当前大运 / 证据 ID / 引文真伪，**只渲染通过校验的结论**。
+        第三轮开启模型思考且强度拉满（reasoning_effort=max）。完成后可导出
+        .md / .html / .pdf（PDF 在打印对话框选「另存为 PDF」）。密钥仅保存在本机浏览器
         存储；接口需允许浏览器跨域（DeepSeek/OpenAI 官方接口支持；本地 Ollama 需设置
         OLLAMA_ORIGINS）。
       </p>
@@ -729,7 +744,37 @@ function onPdfFrameLoad() {
       </div>
       <div v-if="llmError" class="llm-error">{{ llmError }}</div>
       <div v-if="llmSelectionText" class="llm-selection">
-        模型勾选：{{ llmSelectionText }}
+        取材结果：{{ llmSelectionText }}
+      </div>
+      <ul v-if="selErrors.length" class="sel-errors">
+        <li v-for="(e, i) in selErrors" :key="i">
+          <code>[{{ e.code }}]</code> {{ e.field }}{{ e.value ? "=" + e.value : "" }}：{{ e.message }}
+        </li>
+      </ul>
+      <div v-if="claimsValidation" class="claim-check">
+        <div class="claim-check-head">
+          结论校验：共 {{ claimsValidation.total }} 条 · 通过
+          {{ claimsValidation.accepted }} 条 · 拒绝 {{ claimsValidation.rejected }} 条
+          <span v-if="claimsValidation.warnings.length" class="warn">
+            （提示 {{ claimsValidation.warnings.length }} 项）
+          </span>
+        </div>
+        <details v-if="claimsValidation.errors.length" class="claim-issues">
+          <summary>被拒条目（{{ claimsValidation.errors.length }}）</summary>
+          <ul>
+            <li v-for="(e, i) in claimsValidation.errors" :key="i">
+              <code>[{{ e.code }}]</code> 第 {{ e.claim_index + 1 }} 条：{{ e.message }}
+            </li>
+          </ul>
+        </details>
+        <details v-if="claimsValidation.warnings.length" class="claim-issues">
+          <summary>提示项（{{ claimsValidation.warnings.length }}）</summary>
+          <ul>
+            <li v-for="(e, i) in claimsValidation.warnings" :key="i">
+              <code>[{{ e.code }}]</code> 第 {{ e.claim_index + 1 }} 条：{{ e.message }}
+            </li>
+          </ul>
+        </details>
       </div>
       <details v-if="round1Raw" class="round1-raw">
         <summary>第一轮模型回复（原始）</summary>
@@ -1017,6 +1062,50 @@ function onPdfFrameLoad() {
   border: 1px solid rgba(24, 95, 165, 0.35);
   font-size: 13px;
   line-height: 1.6;
+}
+.sel-errors {
+  margin: 8px 0 0;
+  padding: 10px 14px 10px 28px;
+  background: #fdf2f2;
+  border: 1px solid #f3c6c6;
+  border-radius: 8px;
+  color: #a33;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.sel-errors code {
+  background: #fbe3e3;
+  color: #a33;
+}
+.sel-summary {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7280;
+  white-space: pre-wrap;
+}
+.claim-check {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: #f3f7fb;
+  border: 1px solid #d6e4f0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.claim-check-head {
+  font-weight: 600;
+  color: #185fa5;
+}
+.claim-check-head .warn {
+  font-weight: 400;
+  color: #a06a00;
+}
+.claim-issues {
+  margin-top: 8px;
+  color: #444;
+}
+.claim-issues ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
 }
 .llm-report {
   margin-top: 12px;

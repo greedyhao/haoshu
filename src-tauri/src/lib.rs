@@ -30,7 +30,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::analyze,
             commands::export_ai,
-            commands::fetch_materials
+            commands::fetch_materials,
+            commands::verify_and_render_claims,
+            commands::preview_context
         ])
         .run(tauri::generate_context!())
         .expect("error while running haoshu");
