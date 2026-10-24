@@ -579,7 +579,16 @@ function onPdfFrameLoad() {
       <button class="back-btn" type="button" @click="emit('back')">← 修改输入</button>
     </div>
 
-    <BaziCard :bazi="report.bazi" />
+    <p class="disclaimer">
+      结构化参考 + 概率性表述，仅供传统文化研究与自我认知参考，不构成专业建议。
+    </p>
+
+    <BaziCard
+      :bazi="report.bazi"
+      :cang-gan="report.cang_gan"
+      :birth-meta="report.birth_meta"
+      :shi-shen="report.bazi.shi_shen"
+    />
 
     <div class="export-bar">
       <span class="label">导出给大模型：</span>
@@ -625,7 +634,7 @@ function onPdfFrameLoad() {
     <!-- 概览 -->
     <div v-show="active === 'overview'">
       <div class="grid-2">
-        <WuXingChart :wang-shuai="report.wang_shuai" />
+        <WuXingChart :wang-shuai="report.wang_shuai" :verdict="report.wang_shuai_verdict" />
         <ShiShenTable :shi-shen="report.bazi.shi_shen" />
       </div>
       <ShenShaSection :shensha="report.shensha" />
@@ -760,6 +769,16 @@ function onPdfFrameLoad() {
 <style scoped>
 .result-topbar {
   margin-bottom: 10px;
+}
+.disclaimer {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: #fbfaf3;
+  border-left: 3px solid #b8860b;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
 }
 .back-btn {
   border: 1px solid var(--border);
