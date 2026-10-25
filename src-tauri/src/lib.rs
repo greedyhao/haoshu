@@ -37,7 +37,12 @@ pub fn run() {
 
 /// 把打包的静态资源（corpus.db / shensha.db / prompts）从资源目录
 /// 复制到应用私有可写目录 app_data_dir()，并把 BAZI_DATA_DIR / HAOSHU_RESOURCES_DIR
-/// 指向该目录。一次只拷贝缺失的文件（首启后幂等）。
+/// 指向该目录。
+///
+/// 刷新判定：随包携带 resources.version 内容指纹清单（由 bazi-ui/scripts/sync_resources.py
+/// 在同步资源时生成）。已安装清单与随包清单不一致（首启 / 升级带来新资源）时整体
+/// 重拷，否则只补缺失文件——否则已安装设备会永远停留在首启时的旧库，语料勘误
+/// 无法随升级送达。
 ///
 /// 用 tauri-plugin-fs 的 read 读取源：Android 上 resource_dir() 是 `asset://localhost/...`
 /// 虚拟路径，fs 插件会经 AssetManager 打开 APK 内 assets/；桌面端为真实路径，直接读取。
@@ -49,6 +54,22 @@ fn ensure_bundled_resources<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Res
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
 
     let res_root = app.path().resource_dir().unwrap_or_default();
+
+    // 随包指纹清单读不到（旧包未带）时退回旧行为：只补缺失文件，不强制刷新。
+    let bundled_manifest = ["resources/resources.version", "resources.version"]
+        .iter()
+        .find_map(|rel| app.fs().read(&res_root.join(rel)).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok());
+    let manifest_path = data_dir.join("resources.version");
+    let installed_manifest = std::fs::read_to_string(&manifest_path).ok();
+    let force_refresh = match (&bundled_manifest, &installed_manifest) {
+        (Some(bundled), Some(installed)) => bundled != installed,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    if force_refresh {
+        eprintln!("[haoshu] 随包资源清单与已安装副本不一致，整体刷新资源");
+    }
 
     // (源相对路径候选, 目标相对路径)；目标相对于 data_dir。
     // 源候选兼容两种打包布局：resources/ 子目录 或 根目录。
@@ -67,10 +88,11 @@ fn ensure_bundled_resources<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Res
         ),
     ];
 
+    let mut all_ok = true;
     for (src_candidates, dst_rel) in items {
         let dest = data_dir.join(dst_rel);
-        if dest.exists() {
-            continue; // 已拷贝，幂等
+        if !force_refresh && dest.exists() {
+            continue; // 清单一致且文件在，无需重拷
         }
         if let Some(parent) = dest.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -91,10 +113,24 @@ fn ensure_bundled_resources<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Res
             }
         }
         if !copied {
+            all_ok = false;
             eprintln!(
                 "[haoshu] 警告：资源未找到（已尝试 {:?} 于 {:?}）",
                 src_candidates, res_root
             );
+        }
+    }
+
+    // 全部就绪后才落盘清单，作为下次启动的比对基准；写失败则下次启动重试刷新。
+    if force_refresh && all_ok {
+        if let Some(bundled) = &bundled_manifest {
+            if let Err(e) = std::fs::write(&manifest_path, bundled) {
+                eprintln!(
+                    "[haoshu] 警告：写资源清单 {} 失败: {}",
+                    manifest_path.display(),
+                    e
+                );
+            }
         }
     }
 
