@@ -6,6 +6,10 @@ use bazi_analyzer::claims::{
     parse_claims_json, render_claims_markdown, validate_claims, ClaimsDoc, ValidationReport,
 };
 use bazi_analyzer::context::{build_analysis_context, ContextBudget};
+use bazi_analyzer::narrative::{
+    render_narrative_final, split_certification, verify_narrative as verify_narrative_text,
+    NarrativeCheck,
+};
 use bazi_analyzer::selection::{
     parse_selection_json, select_materials, selection_summary, MaterialSelection, SelectionError,
 };
@@ -113,10 +117,14 @@ fn read_prompt(app: &AppHandle, name: &str) -> Result<String, String> {
         .map_err(|e| format!("读取提示词模板失败 {}: {}", prompt_path.display(), e))
 }
 
-/// 导出给大模型分析的命令（评审 P1-3 整改后的三种模式）：
+/// 导出给大模型分析的命令（评审 P1-3 整改后的模式）：
 /// - "context"（默认）：prompt_interactive.md + **AnalysisContext**（核心事实/引擎论断/
 ///   争议项/未知项 + 证据目录 + 取材协议）。已做注意力优化与 token 预算，
 ///   是全量包体积的 ~4%，作为喂模型的正路；
+/// - "narrative"：prompt_narrative.md + **叙事包**（第三轮整改：精简事实 + 默认时间窗 +
+///   自动选证 4–6 条）。单轮生成第二人称报告，配 `verify_narrative` 做后台校验；
+/// - "review"：prompt_review.md + 同一份叙事包（软件评审与命理解读共用已校验事实，
+///   各自成文，互不混写）；
 /// - "brief"：prompt_friendly.md + 一次性精简数据（单轮省 token）；
 /// - "debug-full"：prompt_friendly.md + 全量扁平数据（**仅调试用**，体积可达数百 KB）。
 #[derive(serde::Deserialize)]
@@ -152,6 +160,15 @@ pub fn export_ai(app: AppHandle, export: ExportArgs) -> Result<ExportResult, Str
     let (prompt_name, data) = match mode {
         "brief" => ("prompt_friendly.md", build_ai_brief(&ai_report)),
         "debug-full" => ("prompt_friendly.md", build_ai_compact(&ai_report)),
+        // 叙事包：命理解读与软件评审共用同一份已校验事实，分别配不同提示词
+        "narrative" => (
+            "prompt_narrative.md",
+            bazi_analyzer::narrative::build_narrative_pack(&ai_report).text,
+        ),
+        "review" => (
+            "prompt_review.md",
+            bazi_analyzer::narrative::build_narrative_pack(&ai_report).text,
+        ),
         "menu" | "context" => {
             // 兼容旧的前端 "menu" 命名
             let ctx = build_analysis_context(&result, &ai_report, ContextBudget::default());
@@ -298,6 +315,41 @@ pub fn verify_and_render_claims(
         validation,
         claims: doc,
     })
+}
+
+/// 校验叙事版回复（第三轮整改：严格校验藏在后台）。
+///
+/// 输入是模型的完整回复（叙事正文 + 文末 ```verification 引文清单）。
+/// 引擎继续核对四柱、流年干支、当前大运、旺衰口径与引文，但校验结果
+/// **只进文末附录**，不改正文、不作为渲染正文的来源。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NarrativeArgs {
+    pub args: AnalyzeArgs,
+    /// 模型回复原文（正文 + verification 代码块）
+    pub raw: String,
+}
+
+/// 叙事校验结果
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NarrativeVerifyResult {
+    /// 最终文档：正文原样 + 附录（校验结果/引文出处/rule_id）
+    pub markdown: String,
+    /// 后台校验报告（前端横幅提示用）
+    pub check: NarrativeCheck,
+}
+
+#[tauri::command]
+pub fn verify_narrative(request: NarrativeArgs) -> Result<NarrativeVerifyResult, String> {
+    let query = build_query(&request.args)?;
+    let result = analyze_bazi_detailed(&query)?;
+    let ai_report = build_ai_report(&result, false);
+
+    let (body, cert) = split_certification(&request.raw);
+    let check = verify_narrative_text(&body, cert.as_ref(), &ai_report);
+    let markdown = render_narrative_final(&body, &check, &ai_report);
+    Ok(NarrativeVerifyResult { markdown, check })
 }
 
 /// 只读暴露：查看本轮 AnalysisContext 的渲染文本（调试/教学用，不影响导出）

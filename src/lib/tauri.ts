@@ -48,9 +48,13 @@ export function analyze(args: AnalyzeArgs): Promise<AiReport> {
 // - "context"（默认）：prompt_interactive.md + AnalysisContext（核心事实/引擎论断/
 //   争议项/未知项 + 证据目录 + 严格取材协议）。已做注意力优化与 token 预算，
 //   是全量包体积的 ~4%，作为喂模型的正路；
+// - "narrative"：prompt_narrative.md + 叙事包（第三轮整改：精简事实 + 默认时间窗 +
+//   自动选证 4–6 条）。单轮生成第二人称报告，回复走 verifyNarrative 后台校验；
+// - "review"：prompt_review.md + 同一份叙事包（软件评审独立成文，与命理解读
+//   共用已校验事实、不共用文章）；
 // - "brief"：prompt_friendly.md + 一次性精简数据（单轮省 token）；
 // - "debug-full"：prompt_friendly.md + 全量扁平数据（**仅调试**，可达数百 KB）。
-export type ExportMode = "context" | "brief" | "debug-full";
+export type ExportMode = "context" | "narrative" | "review" | "brief" | "debug-full";
 
 export interface ExportResult {
   bundle: string;
@@ -167,6 +171,50 @@ export interface ClaimsResult {
  */
 export function verify_claims(args: AnalyzeArgs, raw: string): Promise<ClaimsResult> {
   return invoke<ClaimsResult>("verify_and_render_claims", {
+    request: { args: argsPayload({ ...args, lean: false }), raw },
+  });
+}
+
+// ===================== 叙事版（第三轮整改：校验藏在后台） =====================
+
+/** Rust 侧 narrative::NarrativeIssue */
+export interface NarrativeIssue {
+  level: "error" | "warning";
+  code: string;
+  message: string;
+}
+
+/** Rust 侧 narrative::NarrativeCheck */
+export interface NarrativeCheck {
+  pillarsOk: boolean;
+  liunianChecked: number;
+  liunianOk: boolean;
+  dayunOk: boolean | null;
+  verdictOk: boolean;
+  quotesTotal: number;
+  quotesOk: number;
+  issues: NarrativeIssue[];
+  fatal: boolean;
+  summaryLine?: string;
+}
+
+export interface NarrativeVerifyResult {
+  /** 正文原样 + 附录（校验结果/引文出处/rule_id） */
+  markdown: string;
+  check: NarrativeCheck;
+}
+
+/**
+ * 校验叙事版回复（正文 + 文末 ```verification 引文清单）。
+ *
+ * 引擎后台核对四柱 / 流年干支 / 当前大运 / 旺衰口径 / 引文，
+ * 结果只进文末附录，不改写正文。
+ */
+export function verifyNarrative(
+  args: AnalyzeArgs,
+  raw: string
+): Promise<NarrativeVerifyResult> {
+  return invoke<NarrativeVerifyResult>("verify_narrative", {
     request: { args: argsPayload({ ...args, lean: false }), raw },
   });
 }

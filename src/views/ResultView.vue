@@ -6,8 +6,10 @@ import {
   export_ai,
   fetch_materials,
   verify_claims,
+  verifyNarrative,
   parseSelectionErrors,
   type ExportMode,
+  type NarrativeCheck,
   type SelectionError,
   type ValidationReport,
 } from "../lib/tauri";
@@ -38,13 +40,15 @@ const tabs = [
   { key: "classics", label: "典籍溯源" },
 ];
 
-// ================= 导出给大模型（三种模式） =================
+// ================= 导出给大模型（五种模式） =================
 const exporting = ref(false);
 const exportMsg = ref<string | null>(null);
-const exportMode = ref<ExportMode>("context");
+const exportMode = ref<ExportMode>("narrative");
 
 const modeLabels: Record<ExportMode, string> = {
-  context: "上下文包（推荐·已做注意力优化）",
+  narrative: "叙事包（推荐·单轮+后台校验）",
+  review: "软件评审包（独立文章）",
+  context: "上下文包（两轮严格版）",
   brief: "精简包（单轮省 token）",
   "debug-full": "全量包（仅调试·体积巨大）",
 };
@@ -59,7 +63,13 @@ async function onExport() {
   try {
     const out = await export_ai(props.args, exportMode.value);
     const defaultName =
-      exportMode.value === "context" ? "八字分析-第一轮.txt" : "八字分析.txt";
+      exportMode.value === "context"
+        ? "八字分析-第一轮.txt"
+        : exportMode.value === "narrative"
+          ? "八字叙事包.txt"
+          : exportMode.value === "review"
+            ? "软件评审包.txt"
+            : "八字分析.txt";
     const saveRes = await saveExportFile(out.bundle, defaultName, "txt");
     const meta = `数据段 ${out.dataChars} 字符 / 约 ${out.dataTokens} tokens`;
     exportMsg.value = saveRes.canceled
@@ -389,6 +399,143 @@ function onLlmCancel() {
   }
 }
 
+// AI 直连流程：叙事版（单轮+后台校验）/ 严格版（两轮取材+claims）/ 软件评审（单轮独立文章）
+const llmFlow = ref<"narrative" | "strict" | "review">("narrative");
+const flowOptions: { key: "narrative" | "strict" | "review"; label: string; button: string }[] = [
+  { key: "narrative", label: "叙事版（单轮·推荐）", button: "开始叙事分析" },
+  { key: "strict", label: "严格版（两轮取材+claims）", button: "开始两轮严格分析" },
+  { key: "review", label: "软件评审（单轮·独立文章）", button: "开始软件评审" },
+];
+const runButtonLabel = computed(
+  () => flowOptions.find((f) => f.key === llmFlow.value)?.button ?? "开始分析"
+);
+const narrativeCheck = ref<NarrativeCheck | null>(null);
+
+const narrativeCheckSummary = computed(() => {
+  const c = narrativeCheck.value;
+  if (!c) return "";
+  const parts = [
+    `四柱${c.pillarsOk ? "✅" : "❌"}`,
+    `流年干支 ${c.liunianChecked} 处${c.liunianOk ? "✅" : "❌"}`,
+    `当前大运${c.dayunOk === null ? "未提及" : c.dayunOk ? "✅" : "❌"}`,
+    `旺衰口径${c.verdictOk ? "✅" : "❌"}`,
+    c.quotesTotal > 0
+      ? `引文 ${c.quotesOk}/${c.quotesTotal}${c.quotesOk === c.quotesTotal ? "✅" : "❌"}`
+      : "引文未附清单",
+  ];
+  return parts.join("｜") + (c.fatal ? "（存在硬伤，详见附录·校验明细）" : "（详见附录）");
+});
+
+/** 叙事版 / 软件评审：单轮直发，叙事版完成后走引擎后台校验（结果只进附录） */
+async function runSingleFlow(mode: "narrative" | "review") {
+  if (!props.args) throw new Error("缺少分析参数");
+  llmStatus.value =
+    mode === "narrative" ? "正在生成叙事包（精简事实+时间窗+自动选证）…" : "正在生成软件评审包…";
+  const bundle = (await export_ai(props.args, mode)).bundle;
+  llmPhase.value = "round2";
+  llmStatus.value =
+    mode === "narrative" ? "叙事生成中（第二人称报告，模型思考可能较久）…" : "软件评审生成中…";
+  llmReport.value = "";
+  const reply = await streamComplete(
+    [{ role: "user", content: bundle }],
+    {
+      onDelta: (d) => {
+        llmReport.value = (llmReport.value ?? "") + d;
+        round2Chars += d.length;
+        round2Thinking = false;
+      },
+      onReason: () => {
+        round2Thinking = true;
+      },
+    },
+    llmAbort!.signal,
+    true
+  );
+  if (mode === "narrative") {
+    // 后台校验：四柱 / 流年干支 / 当前大运 / 旺衰口径 / 引文；结果只进附录，不改正文
+    llmStatus.value = "后台校验：正在核对四柱 / 流年干支 / 当前大运 / 旺衰口径 / 引文…";
+    const res = await verifyNarrative(props.args, reply);
+    narrativeCheck.value = res.check;
+    llmReport.value = res.markdown;
+    const errCount = res.check.issues.filter((i) => i.level === "error").length;
+    llmStatus.value = errCount
+      ? `完成。校验发现 ${errCount} 处硬伤（正文未改动，详见附录·校验明细）。`
+      : "完成。后台校验全部通过（详见附录）。";
+  } else {
+    llmStatus.value = "完成。软件评审为独立文章，与命理解读不共用文本。";
+  }
+}
+
+/** 严格版：AnalysisContext → 取材 → claims JSON → 本地校验渲染（旧行为完整保留） */
+async function runStrictFlow() {
+  if (!props.args) throw new Error("缺少分析参数");
+  // ── 第一轮：AnalysisContext（核心事实/引擎论断/争议项/未知项 + 证据目录 + 取材协议）
+  llmStatus.value = "第一轮：正在生成分析上下文…";
+  const ctxBundle = await export_ai(props.args, "context");
+  const bundle1 = ctxBundle.bundle;
+  llmStatus.value = "第一轮：上下文已发送，等待模型勾选材料…";
+  const reply1 = await streamComplete(
+    [{ role: "user", content: bundle1 }],
+    {
+      onDelta: (d) => {
+        round1Raw.value = (round1Raw.value ?? "") + d;
+      },
+    },
+    llmAbort!.signal,
+    false
+  );
+
+  // ── 第二轮取材：严格校验，未知 ID / 解析失败直接报错（不兜底）
+  llmStatus.value = "取材：正在校验模型勾选…";
+  let round2: string;
+  try {
+    const mat = await fetch_materials(props.args, reply1);
+    round2 = mat.bundle;
+    llmSelectionText.value = mat.summary;
+    if (mat.warnings.length) {
+      selWarnings.value = mat.warnings;
+    }
+  } catch (e) {
+    const errs = parseSelectionErrors(e);
+    if (errs.length) {
+      selErrors.value = errs;
+      throw new Error("取材被拒绝（未做任何兜底替换）：\n" + selectionErrorText(errs));
+    }
+    throw e;
+  }
+
+  // ── 第三轮：模型只输出 claims JSON（不写散文），保证可机器校验
+  llmPhase.value = "round2";
+  llmStatus.value = "第三轮：正在生成结构化结论（claims JSON）…";
+  llmReport.value = "";
+  const claimsRaw = await streamComplete(
+    [
+      { role: "user", content: bundle1 },
+      { role: "assistant", content: reply1 },
+      { role: "user", content: round2 },
+    ],
+    {
+      onDelta: (d) => {
+        llmReport.value = (llmReport.value ?? "") + d;
+        round2Chars += d.length;
+        round2Thinking = false;
+      },
+      onReason: () => {
+        round2Thinking = true;
+      },
+    },
+    llmAbort!.signal,
+    true
+  );
+
+  // ── 本地校验（四柱 / 流年 / 当前大运 / 证据 ID / 引文）后渲染 Markdown
+  llmStatus.value = "校验：正在核对结论与证据…";
+  const rendered = await verify_claims(props.args, claimsRaw);
+  claimsValidation.value = rendered.validation;
+  llmReport.value = rendered.markdown;
+  llmStatus.value = `完成。${rendered.validation.total} 条结论，通过 ${rendered.validation.accepted} 条，拒绝 ${rendered.validation.rejected} 条。`;
+}
+
 async function onLlmRun() {
   if (!props.args) {
     llmError.value = "请先完成一次分析。";
@@ -420,74 +567,14 @@ async function onLlmRun() {
     }
   }, 500);
   claimsValidation.value = null;
+  narrativeCheck.value = null;
   selErrors.value = [];
   try {
-    // ── 第一轮：AnalysisContext（核心事实/引擎论断/争议项/未知项 + 证据目录 + 取材协议）
-    // 已做注意力优化与 token 预算，不再把 261KB 全量包直接塞给模型。
-    llmStatus.value = "第一轮：正在生成分析上下文…";
-    const ctxBundle = await export_ai(props.args, "context");
-    const bundle1 = ctxBundle.bundle;
-    llmStatus.value = "第一轮：上下文已发送，等待模型勾选材料…";
-    const reply1 = await streamComplete(
-      [{ role: "user", content: bundle1 }],
-      {
-        onDelta: (d) => {
-          round1Raw.value = (round1Raw.value ?? "") + d;
-        },
-      },
-      llmAbort.signal,
-      false
-    );
-
-    // ── 第二轮取材：严格校验，未知 ID / 解析失败直接报错（不兜底）
-    llmStatus.value = "取材：正在校验模型勾选…";
-    let round2: string;
-    try {
-      const mat = await fetch_materials(props.args, reply1);
-      round2 = mat.bundle;
-      llmSelectionText.value = mat.summary;
-      if (mat.warnings.length) {
-        selWarnings.value = mat.warnings;
-      }
-    } catch (e) {
-      const errs = parseSelectionErrors(e);
-      if (errs.length) {
-        selErrors.value = errs;
-        throw new Error("取材被拒绝（未做任何兜底替换）：\n" + selectionErrorText(errs));
-      }
-      throw e;
+    if (llmFlow.value === "strict") {
+      await runStrictFlow();
+    } else {
+      await runSingleFlow(llmFlow.value === "review" ? "review" : "narrative");
     }
-
-    // ── 第三轮：模型只输出 claims JSON（不写散文），保证可机器校验
-    llmPhase.value = "round2";
-    llmStatus.value = "第三轮：正在生成结构化结论（claims JSON）…";
-    llmReport.value = "";
-    const claimsRaw = await streamComplete(
-      [
-        { role: "user", content: bundle1 },
-        { role: "assistant", content: reply1 },
-        { role: "user", content: round2 },
-      ],
-      {
-        onDelta: (d) => {
-          llmReport.value = (llmReport.value ?? "") + d;
-          round2Chars += d.length;
-          round2Thinking = false;
-        },
-        onReason: () => {
-          round2Thinking = true;
-        },
-      },
-      llmAbort.signal,
-      true
-    );
-
-    // ── 本地校验（四柱 / 流年 / 当前大运 / 证据 ID / 引文）后渲染 Markdown
-    llmStatus.value = "校验：正在核对结论与证据…";
-    const rendered = await verify_claims(props.args, claimsRaw);
-    claimsValidation.value = rendered.validation;
-    llmReport.value = rendered.markdown;
-    llmStatus.value = `完成。${rendered.validation.total} 条结论，通过 ${rendered.validation.accepted} 条，拒绝 ${rendered.validation.rejected} 条。`;
   } catch (e) {
     if (llmAbort && llmAbort.signal.aborted) {
       llmStatus.value = "已取消。";
@@ -682,9 +769,9 @@ function onPdfFrameLoad() {
       <ClassicsSection :classics="report.classics" :golden-cases="report.golden_cases" />
     </div>
 
-    <!-- AI 直连 · 两轮自动分析（试验） -->
+    <!-- AI 直连 · 自动分析（叙事版 / 严格版 / 软件评审） -->
     <details class="llm-panel">
-      <summary>AI 直连 · 两轮自动分析（试验）</summary>
+      <summary>AI 直连 · 自动分析（试验）</summary>
       <div class="llm-config">
         <label class="llm-field">
           地址
@@ -721,19 +808,28 @@ function onPdfFrameLoad() {
           Key
           <input v-model="llm.apiKey" type="password" placeholder="sk-…" />
         </label>
+        <label class="llm-field">
+          流程
+          <select v-model="llmFlow" class="mode-select">
+            <option v-for="f in flowOptions" :key="f.key" :value="f.key">{{ f.label }}</option>
+          </select>
+        </label>
         <button class="export-btn" :disabled="llmRunning || !args" @click="onLlmRun">
-          开始两轮分析
+          {{ llmRunning ? "运行中…" : runButtonLabel }}
         </button>
         <button v-if="llmRunning" class="export-btn cancel-btn" @click="onLlmCancel">
           取消
         </button>
       </div>
       <p class="llm-hint">
-        三段式流程：① 发送 AnalysisContext（核心事实/引擎论断/争议项/未知项 + 证据目录，
-        已做注意力优化与 token 预算）→ ② 模型勾选材料，引擎**严格校验**后取回原文
-        （未知 ID、越界序号、解析失败一律报错，不做兜底）→ ③ 模型只输出 claims JSON，
-        引擎本地校验四柱 / 流年干支 / 当前大运 / 证据 ID / 引文真伪，**只渲染通过校验的结论**。
-        第三轮开启模型思考且强度拉满（reasoning_effort=max）。完成后可导出
+        <strong>叙事版（推荐）</strong>：单轮直发叙事包（精简事实 + 默认时间窗的流年干支 +
+        引擎自动选定的 4–6 条段落级典籍摘录），模型写第二人称报告（核心命题→流通链→主要矛盾→
+        生活主题→当前运与未来五年）；完成后引擎<strong>后台校验</strong>四柱 / 流年干支 /
+        当前大运 / 旺衰口径 / 引文，结果只进文末附录，不改动正文。<br />
+        <strong>严格版</strong>：三段式旧流程——① AnalysisContext → ② 模型勾选材料、引擎严格
+        校验取回原文 → ③ 模型只输出 claims JSON，引擎本地校验后只渲染通过的结论。<br />
+        <strong>软件评审</strong>：与命理解读共用同一份已校验事实包，但只评软件、独立成文。<br />
+        生成阶段开启模型思考且强度拉满（reasoning_effort=max）。完成后可导出
         .md / .html / .pdf（PDF 在打印对话框选「另存为 PDF」）。密钥仅保存在本机浏览器
         存储；接口需允许浏览器跨域（DeepSeek/OpenAI 官方接口支持；本地 Ollama 需设置
         OLLAMA_ORIGINS）。
@@ -743,6 +839,9 @@ function onPdfFrameLoad() {
         <span v-if="llmProgress" class="llm-progress">{{ llmProgress }}</span>
       </div>
       <div v-if="llmError" class="llm-error">{{ llmError }}</div>
+      <div v-if="narrativeCheck" class="llm-selection" :class="{ 'check-bad': narrativeCheck.fatal }">
+        后台校验：{{ narrativeCheckSummary }}
+      </div>
       <div v-if="llmSelectionText" class="llm-selection">
         取材结果：{{ llmSelectionText }}
       </div>
@@ -1062,6 +1161,12 @@ function onPdfFrameLoad() {
   border: 1px solid rgba(24, 95, 165, 0.35);
   font-size: 13px;
   line-height: 1.6;
+}
+/* 后台校验横幅：存在 error 级问题时转警示色（正文不受影响，问题在附录明细） */
+.llm-selection.check-bad {
+  background: rgba(196, 43, 43, 0.1);
+  border-color: rgba(196, 43, 43, 0.5);
+  color: #c42b2b;
 }
 .sel-errors {
   margin: 8px 0 0;

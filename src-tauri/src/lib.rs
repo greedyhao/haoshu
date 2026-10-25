@@ -32,6 +32,7 @@ pub fn run() {
             commands::export_ai,
             commands::fetch_materials,
             commands::verify_and_render_claims,
+            commands::verify_narrative,
             commands::preview_context
         ])
         .run(tauri::generate_context!())
@@ -75,6 +76,14 @@ fn ensure_bundled_resources<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Res
         (
             &["resources/prompts/prompt_round2.md", "prompts/prompt_round2.md"],
             "resources/prompts/prompt_round2.md",
+        ),
+        (
+            &["resources/prompts/prompt_narrative.md", "prompts/prompt_narrative.md"],
+            "resources/prompts/prompt_narrative.md",
+        ),
+        (
+            &["resources/prompts/prompt_review.md", "prompts/prompt_review.md"],
+            "resources/prompts/prompt_review.md",
         ),
     ];
 
