@@ -97,9 +97,7 @@ const notableYears = computed(() => {
 
 const taiSuiYears = computed(() => {
   const set = new Set<number>();
-  (props.suiYun?.per_year ?? []).forEach((y) => {
-    if (y.is_tai_sui_chong) set.add(y.year);
-  });
+  (props.suiYun?.tai_sui_chong_years ?? []).forEach((y) => set.add(y));
   return set;
 });
 
@@ -161,11 +159,10 @@ const displayRows = computed<YearRow[]>(() =>
 const currentStep = computed(
   () => steps.value.find((d) => d.index === selectedYun.value) ?? null,
 );
-const taiSuiTargets = computed(() => props.suiYun?.tai_sui_targets ?? []);
-const mingChong = computed(() => props.suiYun?.ming_chong ?? []);
+const taiSuiTargets = computed(() => props.suiYun?.tai_sui_chong_targets ?? []);
 const bingLinList = computed(() => Array.from(binglinYears.value).sort((a, b) => a - b));
 const notableList = computed(() => Array.from(notableYears.value).sort((a, b) => a - b));
-const bingLinExample = computed(() => props.suiYun?.bing_lin_example ?? null);
+const taiSuiYearList = computed(() => Array.from(taiSuiYears.value).sort((a, b) => a - b));
 const notableNote = computed(
   () =>
     props.suiYun?.notable_note ||
@@ -253,13 +250,9 @@ function yearRangeText(step: AiDaYunStep): string {
       <div v-if="hasSuiYun" class="suiyun panel">
         <h4>岁运引动（关系提示，非吉凶）</h4>
         <ul class="suiyun-list">
-          <li v-if="taiSuiTargets.length">太岁冲：{{ taiSuiTargets.join("、") }}</li>
-          <li v-if="mingChong.length">明六冲引动：{{ mingChong.join("、") }}</li>
+          <li v-if="taiSuiTargets.length">太岁冲（{{ taiSuiYearList.join("、") }}）：{{ taiSuiTargets.join("、") }}</li>
           <li v-if="bingLinList.length">
             岁运并临（流年干支同大运）：{{ bingLinList.join("、") }}
-          </li>
-          <li v-else-if="bingLinExample">
-            岁运并临：示例 {{ bingLinExample }}（详见逐年明细）
           </li>
           <li v-if="notableList.length">
             关系较多之年（非吉凶）：{{ notableList.join("、") }}

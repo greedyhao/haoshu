@@ -31,11 +31,7 @@
       "./resources/corpus.db",
       "./resources/shensha.db",
       "./resources/cross_pillar_matrix.json",
-      "./resources/prompts/prompt_friendly.md",
-      "./resources/prompts/prompt_interactive.md",
-      "./resources/prompts/prompt_round2.md",
-      "./resources/prompts/prompt_narrative.md",
-      "./resources/prompts/prompt_review.md"
+      "./resources/prompts/prompt_friendly.md"
     ],
     "icon": [
       "icons/32x32.png",

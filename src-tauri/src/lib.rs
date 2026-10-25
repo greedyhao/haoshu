@@ -29,11 +29,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::analyze,
-            commands::export_ai,
-            commands::fetch_materials,
-            commands::verify_and_render_claims,
-            commands::verify_narrative,
-            commands::preview_context
+            commands::export_ai
         ])
         .run(tauri::generate_context!())
         .expect("error while running haoshu");
@@ -68,22 +64,6 @@ fn ensure_bundled_resources<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Res
         (
             &["resources/prompts/prompt_friendly.md", "prompts/prompt_friendly.md"],
             "resources/prompts/prompt_friendly.md",
-        ),
-        (
-            &["resources/prompts/prompt_interactive.md", "prompts/prompt_interactive.md"],
-            "resources/prompts/prompt_interactive.md",
-        ),
-        (
-            &["resources/prompts/prompt_round2.md", "prompts/prompt_round2.md"],
-            "resources/prompts/prompt_round2.md",
-        ),
-        (
-            &["resources/prompts/prompt_narrative.md", "prompts/prompt_narrative.md"],
-            "resources/prompts/prompt_narrative.md",
-        ),
-        (
-            &["resources/prompts/prompt_review.md", "prompts/prompt_review.md"],
-            "resources/prompts/prompt_review.md",
         ),
     ];
 

@@ -526,14 +526,22 @@ export interface LianDongLink {
 // ============================================================
 
 export interface SuiYunTrigger {
-  is_tai_sui_chong: boolean;
-  tai_sui_targets: string[];
-  is_sui_yun_bing_lin: boolean;
+  /** 分析基准时刻（ISO8601 东八区） */
+  as_of: string;
+  /** as_of 时刻所处大运干支（未起运/超范围时 null） */
+  dayun_at_as_of: string | null;
+  dayun_index_at_as_of: number | null;
+  dayun_attribution_note: string;
+  /** 当前年状态（as_of 所在公历年）——"当前"口径以此为准 */
+  as_of_year: number;
+  as_of_year_ganzhi: string;
+  as_of_year_tai_sui_chong: boolean;
+  as_of_year_bing_lin: boolean;
+  /** 全程太岁冲年份清单（第四轮整改：不再用顶层"是否存在"布尔） */
+  tai_sui_chong_years: number[];
+  tai_sui_chong_targets: string[];
   /** 只列真正并临年份（流年干支 == 该年所处大运干支） */
   bing_lin_years: number[];
-  bing_lin_example: string | null;
-  /** 明六冲（岁运引动），替代旧 dark_chong */
-  ming_chong: string[];
   /** 关系密集年（非吉凶），替代旧 strong_trigger_years */
   notable_years: number[];
   notable_note: string;
