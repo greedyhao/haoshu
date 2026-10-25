@@ -1,6 +1,6 @@
 [package]
 name = "haoshu"
-version = "0.1.0"
+version = "0.1.1"
 description = "好术（东方术数）· Tauri 2.0 桌面应用（当前支持八字四柱分析）"
 authors = ["you"]
 edition = "2021"
